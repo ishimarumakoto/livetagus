@@ -4,6 +4,7 @@ const cors = require("cors");
 const fetch = require("node-fetch");
 const path = require("path");
 const fs = require("fs");
+const analytics = require("./analytics");
 
 const app = express();
 app.use(cors());
@@ -396,9 +397,15 @@ const processTrain = async (richInfo, originDateStr) => {
   const direction = richInfo.direction;
 
   if (!TRAIN_MEMORY[trainId]) {
-    TRAIN_MEMORY[trainId] = { history: {}, lastDelay: 0, nextWakeUp: 0 };
+    TRAIN_MEMORY[trainId] = {
+      history: {},
+      lastDelay: 0,
+      nextWakeUp: 0,
+      frozenPredictions: {},
+    };
   }
   const mem = TRAIN_MEMORY[trainId];
+  if (!mem.frozenPredictions) mem.frozenPredictions = {}; // Garante retrocompatibilidade
 
   if (nowTime < mem.nextWakeUp && OUTPUT_CACHE[trainId]) {
     return OUTPUT_CACHE[trainId];
@@ -472,6 +479,7 @@ const processTrain = async (richInfo, originDateStr) => {
     }
   }
 
+  /* Deixar de apagar comboios, analytics passa a tratar disso
   if (isLive) {
     const lastNode = nodes[nodes.length - 1];
     if (lastNode && lastNode.ComboioPassou) {
@@ -486,7 +494,7 @@ const processTrain = async (richInfo, originDateStr) => {
         return null;
       }
     }
-  }
+  }*/
 
   const displayDate = originDateStr.split("-").reverse().join("/");
   const refTrip = departureTrip || richInfo;
@@ -561,7 +569,7 @@ const processTrain = async (richInfo, originDateStr) => {
       node.NomeEstacao,
       direction,
     );
-    let horaPrevistaFinal = horaPartidaProgStr; // Inicia com a partida teórica
+    let horaPrevistaFinal = horaPartidaProgStr; // inicia com a partida teórica
 
     if (datePartidaProg && !passed) {
       // Previsão = Hora de Partida Planeada + Atraso Acumulado + Ajuste Ponte
@@ -570,25 +578,59 @@ const processTrain = async (richInfo, originDateStr) => {
           datePartidaProg.getTime() + (currentDelay + bridgeAdjustment) * 1000,
         ),
       );
+      // GUARDA SEMPRE A ÚLTIMA PREVISÃO ENQUANTO NÃO PASSAR
+      mem.frozenPredictions[node.NodeID] = horaPrevistaFinal;
     }
+
+    // Se já passou, usa a previsão congelada. Se não houver (ex: o servidor iniciou agora), usa a HoraReal.
+    let previsaoCongelada = passed
+      ? mem.frozenPredictions[node.NodeID] || horaRealStr
+      : horaPrevistaFinal;
 
     trainOutput.NodesPassagemComboio.push({
       ComboioPassou: passed,
-      HoraProgramada: horaPartidaProgStr, // Passamos a mostrar a partida programada
+      HoraProgramada: horaPartidaProgStr,
       HoraReal: passed ? horaRealStr : "HH:MM:SS",
       AtrasoReal: passed ? atrasoNode : 0,
-      HoraPrevista: passed ? horaRealStr : horaPrevistaFinal,
+      HoraPrevista: previsaoCongelada, // horaprevista mantêm para controlo de precisão
       EstacaoID: node.NodeID,
       NomeEstacao: node.NomeEstacao,
     });
   });
 
   if (newStationPassed) {
-    mem.nextWakeUp = Date.now() + 120000;
+    mem.nextWakeUp = Date.now() + 90000; // delay de min e meio para próxima chamada (cooldown)
   }
 
   trainOutput.AtrasoCalculado = currentDelay;
   mem.lastDelay = currentDelay;
+
+  if (isLive) {
+    const lastNode =
+      trainOutput.NodesPassagemComboio[
+        trainOutput.NodesPassagemComboio.length - 1
+      ];
+    if (lastNode && lastNode.ComboioPassou) {
+      const isEnd =
+        (direction === "lisboa" &&
+          lastNode.NomeEstacao.toUpperCase().includes("ROMA")) ||
+        (direction === "margem" &&
+          (lastNode.NomeEstacao.toUpperCase().includes("COINA") ||
+            lastNode.NomeEstacao.toUpperCase().includes("SETÚBAL")));
+
+      if (isEnd) {
+        // Envia os dados finais para o nosso módulo de estatísticas
+        analytics.processCompletedTrain(
+          trainOutput.NodesPassagemComboio,
+          mem.frozenPredictions,
+          mem.history,
+        );
+        delete TRAIN_MEMORY[trainId];
+        return null; // Remove da cache ativa
+      }
+    }
+  }
+
   return trainOutput;
 };
 
@@ -661,13 +703,24 @@ const scheduleNextTick = () => {
 
 // --- ROUTES ---
 
-// Rota protegida com middleware
-app.get("/fertagus", protectRoute, (req, res) => res.json(OUTPUT_CACHE));
+// endpoint para controlo de precisao
+app.get("/status", (req, res) => res.json(analytics.getStatusReport()));
 
+// Rota protegida com middleware e anti cache
+app.get("/fertagus", protectRoute, (req, res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+  res.json(OUTPUT_CACHE);
+});
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.3.5",
+    version: "4.5.0",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
@@ -675,7 +728,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.3.5 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.5.0 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();
