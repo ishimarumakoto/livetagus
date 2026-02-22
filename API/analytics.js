@@ -33,7 +33,12 @@ const saveStatsToDisk = () => {
 const timeToSeconds = (timeStr) => {
   if (!timeStr || timeStr === "HH:MM:SS") return null;
   const parts = timeStr.split(":");
-  return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+  // Forçamos a conversão para Número (parseInt) para impedir a concatenação de texto
+  return (
+    parseInt(parts[0]) * 3600 +
+    parseInt(parts[1]) * 60 +
+    parseInt(parts[2] || 0)
+  );
 };
 
 const processCompletedTrain = (nodes, frozenPredictions, history) => {

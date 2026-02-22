@@ -392,21 +392,25 @@ const checkOfflineTrains = async () => {
 // --- PROCESSAMENTO ---
 const processTrain = async (richInfo, originDateStr) => {
   const trainId = String(richInfo.id);
+  // criar chave única diária
+  const memKey = `${trainId}_${originDateStr}`;
   const nowTime = Date.now();
   const nowObj = new Date();
   const direction = richInfo.direction;
 
-  if (!TRAIN_MEMORY[trainId]) {
-    TRAIN_MEMORY[trainId] = {
+  // usar memKey em vez de trainId
+  if (!TRAIN_MEMORY[memKey]) {
+    TRAIN_MEMORY[memKey] = {
       history: {},
       lastDelay: 0,
       nextWakeUp: 0,
       frozenPredictions: {},
     };
   }
-  const mem = TRAIN_MEMORY[trainId];
-  if (!mem.frozenPredictions) mem.frozenPredictions = {}; // Garante retrocompatibilidade
+  const mem = TRAIN_MEMORY[memKey];
+  if (!mem.frozenPredictions) mem.frozenPredictions = {};
 
+  // OUTPUT_CACHE continua a usar apenas o trainId para a App não quebrar!
   if (nowTime < mem.nextWakeUp && OUTPUT_CACHE[trainId]) {
     return OUTPUT_CACHE[trainId];
   }
@@ -619,14 +623,16 @@ const processTrain = async (richInfo, originDateStr) => {
             lastNode.NomeEstacao.toUpperCase().includes("SETÚBAL")));
 
       if (isEnd) {
-        // Envia os dados finais para o nosso módulo de estatísticas
-        analytics.processCompletedTrain(
-          trainOutput.NodesPassagemComboio,
-          mem.frozenPredictions,
-          mem.history,
-        );
-        delete TRAIN_MEMORY[trainId];
-        return null; // Remove da cache ativa
+        // NOVO: Garante que só processamos as estatísticas UMA vez
+        if (!mem.isFinished) {
+          analytics.processCompletedTrain(
+            trainOutput.NodesPassagemComboio,
+            mem.frozenPredictions,
+            mem.history,
+          );
+          mem.isFinished = true; // Marca como terminado em vez de apagar
+        }
+        return null; // Remove da cache visual da app
       }
     }
   }
@@ -635,9 +641,19 @@ const processTrain = async (richInfo, originDateStr) => {
 };
 
 // --- LOOP PRINCIPAL ---
+// --- LOOP PRINCIPAL ---
 const updateCycle = async () => {
   const now = new Date();
-  const { isWeekendOrHoliday } = getOperationalInfo(now);
+  const opInfo = getOperationalInfo(now);
+  const isWeekendOrHoliday = opInfo.isWeekendOrHoliday;
+  const currentOpDate = opInfo.operationalDateStr;
+
+  // NOVO: Limpeza de memória - Apaga os registos de dias anteriores para libertar RAM
+  for (const key in TRAIN_MEMORY) {
+    if (!key.endsWith(currentOpDate)) {
+      delete TRAIN_MEMORY[key];
+    }
+  }
 
   const activeRichTrains = RICH_SCHEDULE.map((t) => {
     let startStr =
@@ -660,7 +676,13 @@ const updateCycle = async () => {
   }).filter((t) => {
     if (!t) return false;
 
-    const isBeingTracked = !!TRAIN_MEMORY[String(t.id)];
+    // verifica se comboio é de hoje ou ontem
+    const memKey = `${t.id}_${t.originDateStr}`;
+    const mem = TRAIN_MEMORY[memKey];
+
+    if (mem && mem.isFinished) return false;
+
+    const isBeingTracked = !!mem;
 
     const hType = parseInt(t.horario);
     let matchesDay =
