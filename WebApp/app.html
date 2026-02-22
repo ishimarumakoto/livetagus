@@ -958,7 +958,7 @@
           if (!nextTrain) nextTrain = trains.find((t) => !t.isSuppressed);
           if (!nextTrain) nextTrain = trains[0];
 
-          // 2. RETORNA SEMPRE O AVISO (VERSÃO DE TESTE)
+          // sudoku sempre ativado para testes
           if (nextTrain) {
             return {
               id: "sudoku-promo",
@@ -968,7 +968,7 @@
               textolink: "Jogar",
               isSudoku: true,
               icon: "gamepad-2",
-              // Guarda a info extra do próximo comboio para o botão do Sudoku
+              // info extra do próximo comboio para o botão do Sudoku
               trainId: nextTrain.id,
               trainDest: nextTrain.dest,
             };
@@ -1527,8 +1527,8 @@
 
       function checkDayType() {
         const date = getOperationalDate();
-        if (isWeekendOrHoliday(date)) return 2; // Weekend/Holiday
-        return 0; // Business Day
+        if (isWeekendOrHoliday(date)) return 2; // FDS/feriados
+        return 0; // dia util
       }
 
       const CLIENT_API_KEY =
@@ -1536,14 +1536,17 @@
 
       async function fetchFertagusNewAPI() {
         const currentDB = activeTab === "lisboa" ? DB_LISBOA : DB_MARGEM;
+        const isSpecialDay = checkDayType() === 2;
         if (!currentDB) return [];
         try {
-          const res = await fetch(API_FERTAGUS_NEW, {
+          const res = await fetch(API_FERTAGUS_NEW + "?t=" + Date.now(), {
+            // timestamp para browsers serem obrigados a atualizar
             method: "GET",
             headers: {
               "x-api-key": CLIENT_API_KEY,
               Accept: "application/json",
             },
+            cache: "no-store", // não guardar cache em dispositivo
           });
           if (!res.ok) throw new Error("API Middleware Error");
           const data = await res.json();
@@ -1757,8 +1760,8 @@
                 pulse: pulse,
                 isLive: isLive,
                 isSuppressed: isSuppressed,
-                carriages: dbTrain.carruagens,
-                occupancy: dbTrain.ocupacao,
+                carriages: isSpecialDay ? 4 : dbTrain.carruagens,
+                occupancy: isSpecialDay ? null : dbTrain.ocupacao,
                 context: context,
                 isPassed: hasPassedOrigin,
                 isEffectiveFuture: !hasPassedOrigin && !isSuppressed,
