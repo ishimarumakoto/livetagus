@@ -1,5 +1,5 @@
-/* Filename: js/menu.js 
-   Funções: Menu Global, Footer Global, Definições de Tema, API Status
+/* 
+  Funções: Menu Global, Footer Global, Definições de Tema, API Status
 */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -39,11 +39,11 @@ function injectNavigation() {
             <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/5 dark:bg-blue-900/10 rounded-full blur-[120px] pointer-events-none"></div>
 
             <nav class="flex flex-col gap-2 relative z-10">
-                <a href="./" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Início</a>
-                <a href="./app.html" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-black dark:text-white transition-colors uppercase italic">Tempo Real</a>
-                <a href="./horarios.html" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Horários</a>
+                <a href="https://livetagus.pt/" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Início</a>
+                <a href="https://livetagus.pt/app.html" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-black dark:text-white transition-colors uppercase italic">Tempo Real</a>
+                <a href="https://livetagus.pt/horarios.html" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Horários</a>
                 <a id="btn-menu-estado" href="https://status.livetagus.pt/pt-pt" target="_blank" rel="noopener noreferrer" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Estado</a>
-                <a id="btn-menu-sobre" href="./sobre.html" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Sobre</a>
+                <a id="btn-menu-sobre" href="https://livetagus.pt/sobre.html" class="menu-link text-4xl md:text-6xl font-light tracking-tighter text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors uppercase">Sobre</a>
             </nav>
 
             <div class="relative z-10 border-t border-zinc-200 dark:border-white/10 pt-8 mt-8 md:pb-0">
@@ -114,22 +114,22 @@ function injectFooter() {
                     <span class="text-[10px] uppercase font-bold text-zinc-400 tracking-widest mb-2">Links & Info</span>
                     
                     <a href="https://docs.livetagus.pt/" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Docs</a>
-                    <a href="./license" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Licença</a>
+                    <a href="https://livetagus.pt/license" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Licença</a>
                     
-                    <a href="./app" class="text-xs w-full flex justify-end items-center gap-2 text-zinc-500 hover:text-black dark:hover:text-white transition-colors">
+                    <a href="https://livetagus.pt/app" class="text-xs w-full flex justify-end items-center gap-2 text-zinc-500 hover:text-black dark:hover:text-white transition-colors">
                         <span id="status-dot-footer" class="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-700"></span>
                         Tempo Real
                     </a>
 
-                    <a href="./sobre" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Apoia o Projeto</a>
-                    <a href="./code_of_conduct" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Código de Conduta</a>
-                    <a href="./privacidade" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Termos & Privacidade</a>
+                    <a href="https://livetagus.pt/sobre" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Apoia o Projeto</a>
+                    <a href="https://livetagus.pt/code_of_conduct" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Código de Conduta</a>
+                    <a href="https://livetagus.pt/privacidade" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Termos & Privacidade</a>
                     <a href="https://status.livetagus.pt/pt-pt" target="_blank" rel="noopener noreferrer" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Estado dos servidores</a>
-                    <a href="./sobre" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Sobre Nós e Contactos</a>
+                    <a href="https://livetagus.pt/sobre" class="text-xs text-zinc-500 hover:text-black dark:hover:text-white transition-colors">Sobre Nós e Contactos</a>
                     
                     
                     <div class="flex justify-center mt-2">
-                      <a href="./sobre" class="opacity-80 hover:opacity-100 transition-opacity">                     
+                      <a href="https://livetagus.pt/sobre" class="opacity-80 hover:opacity-100 transition-opacity">                     
                         <img
                           src="./imagens/badge_coded_in_europe_portugal_margem_sul.svg"
                           alt="Badge saying Coded in Europe, Portugal"
@@ -316,22 +316,3 @@ async function checkApiStatus() {
     setTimeout(checkApiStatus, 30000);
   }
 }
-
-// INJEÇÃO DO SISTEMA OFFLINE
-(function initOfflineSystem() {
-  // 1. Registar Service Worker
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker
-      .register("./sw.js")
-      // .then(() => console.log("[SW] Registado com sucesso"))
-      .catch((err) => console.log("[SW] Falha ao registar:", err));
-  }
-
-  // 2. Injetar Script Offline
-  if (!document.querySelector('script[src="./offline.js"]')) {
-    const script = document.createElement("script");
-    script.src = "./offline.js";
-    script.defer = true;
-    document.head.appendChild(script);
-  }
-})();
