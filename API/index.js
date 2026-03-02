@@ -217,9 +217,13 @@ const parseSmartTime = (timeStr, now = new Date()) => {
 
   const nowH = now.getHours();
 
+  // FIX #2: Ajuste inteligente do dia
+  // madrugada (ex: 01h) e o comboio é da noite anterior (ex: 23h).
   if (nowH < 5 && h >= 18) {
     d.setDate(d.getDate() - 1);
-  } else if (nowH >= 20 && h < 5) {
+  }
+  // noite (ex: 22h) e o comboio é da manhã (ex: 06h), é no dia seguinte.
+  else if (nowH >= 18 && h < 16) {
     d.setDate(d.getDate() + 1);
   }
 
@@ -321,8 +325,8 @@ const checkTurnaroundDelay = (
       );
 
       if (predictedArrivalDate && scheduledDepartureDate) {
-        // Tempo mínimo de paragem técnica Fertagus: 4 minutos e 30 segundos.
-        const minTurnaroundMs = 4.5 * 60 * 1000;
+        // Tempo mínimo de paragem técnica Fertagus: 4 minutos.
+        const minTurnaroundMs = 4 * 60 * 1000;
         const minDepartureDate = new Date(
           predictedArrivalDate.getTime() + minTurnaroundMs,
         );
@@ -352,15 +356,27 @@ const checkOfflineTrains = async () => {
     `[FUTURE CHECK] ${new Date().toLocaleTimeString()} - A atualizar estados futuros (15m interval)...`,
   );
   const now = new Date();
-  const { isWeekendOrHoliday } = getOperationalInfo(now);
   const activeIds = Object.keys(OUTPUT_CACHE);
 
-  const candidates = RICH_SCHEDULE.filter((t) => {
+  // FIX #2: Pre-processar a hora de início para avaliar o dia correto de cada comboio
+  const candidates = RICH_SCHEDULE.map((t) => {
+    let startStr =
+      t.direction === "lisboa" ? t.setubal || t.coina : t.roma_areeiro;
+    if (!startStr) return null;
+    const startObj = parseSmartTime(startStr, now);
+    return { ...t, startObj };
+  }).filter((t) => {
+    if (!t || !t.startObj) return false;
     if (activeIds.includes(String(t.id))) return false;
+
+    // A avaliação é feita sobre o startObj do comboio e não do "now" global
+    const trainOpInfo = getOperationalInfo(t.startObj);
+    const isTrainWeekendOrHoliday = trainOpInfo.isWeekendOrHoliday;
+
     const hType = parseInt(t.horario);
     if (hType === 1) return true;
-    if (isWeekendOrHoliday && hType === 2) return true;
-    if (!isWeekendOrHoliday && hType === 0) return true;
+    if (isTrainWeekendOrHoliday && hType === 2) return true;
+    if (!isTrainWeekendOrHoliday && hType === 0) return true;
     return false;
   });
 
@@ -371,12 +387,7 @@ const checkOfflineTrains = async () => {
     const chunk = candidates.slice(i, i + CONCURRENCY);
     await Promise.all(
       chunk.map(async (t) => {
-        let startStr =
-          t.direction === "lisboa" ? t.setubal || t.coina : t.roma_areeiro;
-        if (!startStr) return;
-        const startDate = parseSmartTime(startStr, now);
-        if (!startDate) return;
-        const dateStr = formatDateStr(startDate);
+        const dateStr = formatDateStr(t.startObj); // Usa a data exata do comboio
         const details = await fetchDetails(String(t.id), dateStr);
         if (details && details.SituacaoComboio) {
           results[String(t.id)] =
@@ -469,6 +480,9 @@ const processTrain = async (richInfo, originDateStr) => {
     });
   }
 
+  // FIX #5: para declarar como live basta uma estação como passou true
+  isLive = isLive || Object.keys(mem.history).length > 0;
+
   let turnaroundDelay = 0;
   if (direction === "margem") {
     const scheduledRoma = departureTrip
@@ -531,7 +545,8 @@ const processTrain = async (richInfo, originDateStr) => {
   let newStationPassed = false;
 
   nodes.forEach((node) => {
-    const passed = node.ComboioPassou;
+    // FIX #5: Se já existe um registo na nossa memoria, o comboio passou garantidamente.
+    const passed = node.ComboioPassou || !!mem.history[node.NodeID];
 
     if (passed && !mem.history[node.NodeID]) {
       newStationPassed = true;
@@ -623,14 +638,14 @@ const processTrain = async (richInfo, originDateStr) => {
             lastNode.NomeEstacao.toUpperCase().includes("SETÚBAL")));
 
       if (isEnd) {
-        // NOVO: Garante que só processamos as estatísticas UMA vez
+        // garante estatisticas apenas uma
         if (!mem.isFinished) {
           analytics.processCompletedTrain(
             trainOutput.NodesPassagemComboio,
             mem.frozenPredictions,
             mem.history,
           );
-          mem.isFinished = true; // Marca como terminado em vez de apagar
+          mem.isFinished = true; // marca como terminado em vez de apagar
         }
         return null; // Remove da cache visual da app
       }
@@ -641,16 +656,17 @@ const processTrain = async (richInfo, originDateStr) => {
 };
 
 // --- LOOP PRINCIPAL ---
-// --- LOOP PRINCIPAL ---
 const updateCycle = async () => {
   const now = new Date();
   const opInfo = getOperationalInfo(now);
   const isWeekendOrHoliday = opInfo.isWeekendOrHoliday;
   const currentOpDate = opInfo.operationalDateStr;
 
-  // NOVO: Limpeza de memória - Apaga os registos de dias anteriores para libertar RAM
+  // limpeza de memoria - apagar os registos de dias anteriores para libertar RAM
+  // FIX #4: Limpeza inteligente - só apaga memórias estritamente anteriores ao dia operacional
   for (const key in TRAIN_MEMORY) {
-    if (!key.endsWith(currentOpDate)) {
+    const keyDateStr = key.split("_")[1]; // Extrai a data da chave (ex: 2026-03-02)
+    if (keyDateStr && keyDateStr < currentOpDate) {
       delete TRAIN_MEMORY[key];
     }
   }
@@ -667,6 +683,11 @@ const updateCycle = async () => {
     const end = parseSmartTime(endStr, now);
     if (!start || !end) return null;
 
+    // Se o comboio começa antes da meia-noite mas acaba depois, força a correção
+    if (end.getTime() < start.getTime()) {
+      end.setDate(end.getDate() + 1);
+    }
+
     return {
       ...t,
       startObj: start,
@@ -676,7 +697,6 @@ const updateCycle = async () => {
   }).filter((t) => {
     if (!t) return false;
 
-    // verifica se comboio é de hoje ou ontem
     const memKey = `${t.id}_${t.originDateStr}`;
     const mem = TRAIN_MEMORY[memKey];
 
@@ -684,11 +704,16 @@ const updateCycle = async () => {
 
     const isBeingTracked = !!mem;
 
+    // FIX #2: Avalia se o dia específico deste comboio é de fim de semana
+    const trainOpInfo = getOperationalInfo(t.startObj);
+    const isTrainWeekendOrHoliday = trainOpInfo.isWeekendOrHoliday;
+
     const hType = parseInt(t.horario);
     let matchesDay =
       hType === 1 ||
-      (isWeekendOrHoliday && hType === 2) ||
-      (!isWeekendOrHoliday && hType === 0);
+      (isTrainWeekendOrHoliday && hType === 2) ||
+      (!isTrainWeekendOrHoliday && hType === 0);
+
     if (!matchesDay) return false;
 
     const nowTime = now.getTime();
@@ -750,7 +775,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.5.0 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.7.2 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();

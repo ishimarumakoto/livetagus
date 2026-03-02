@@ -8,7 +8,7 @@ let stats = {
   stations: {},
 };
 
-// --- NOVO: Carregar dados antigos se o servidor reiniciar ---
+// caregar dados antigos se o servidor reiniciar
 if (fs.existsSync(DB_PATH)) {
   try {
     const raw = fs.readFileSync(DB_PATH, "utf8");
@@ -21,7 +21,7 @@ if (fs.existsSync(DB_PATH)) {
   }
 }
 
-// --- NOVO: Função para guardar no disco ---
+// função para guardar no disco
 const saveStatsToDisk = () => {
   try {
     fs.writeFileSync(DB_PATH, JSON.stringify(stats, null, 2));
@@ -33,7 +33,7 @@ const saveStatsToDisk = () => {
 const timeToSeconds = (timeStr) => {
   if (!timeStr || timeStr === "HH:MM:SS") return null;
   const parts = timeStr.split(":");
-  // Forçamos a conversão para Número (parseInt) para impedir a concatenação de texto
+  // forçar a conversão para Número (parseInt)
   return (
     parseInt(parts[0]) * 3600 +
     parseInt(parts[1]) * 60 +
@@ -77,7 +77,7 @@ const processCompletedTrain = (nodes, frozenPredictions, history) => {
     }
   });
 
-  // guardar viagem quando terminar
+  // guardar no disco sempre que um comboio acaba a viagem
   saveStatsToDisk();
 };
 

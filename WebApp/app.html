@@ -865,12 +865,26 @@
       };
       window.updateStationLabels = function () {}; // No-op now as UI is selects
 
-      window.parseTimeStr = function (str) {
-        if (!str) return null;
-        const [h, m] = str.split(":").map(Number);
-        const d = new Date();
-        d.setHours(h, m, 0, 0);
-        if (d < new Date(Date.now() - 4 * 3600000)) d.setDate(d.getDate() + 1);
+      window.parseTimeStr = function (timeStr, now = new Date()) {
+        if (!timeStr) return null;
+        const parts = timeStr.split(":");
+        const h = parseInt(parts[0]);
+        const m = parseInt(parts[1]);
+        const s = parts[2] ? parseInt(parts[2]) : 0;
+
+        const d = new Date(now);
+        d.setHours(h, m, s, 0);
+
+        const nowH = now.getHours();
+
+        // FIX: Se estamos de madrugada e o comboio é da noite anterior
+        if (nowH < 5 && h >= 18) {
+          d.setDate(d.getDate() - 1);
+        }
+        // FIX: Se estamos à noite e o comboio é da manhã do dia seguinte
+        else if (nowH >= 18 && h < 16) {
+          d.setDate(d.getDate() + 1);
+        }
         return d;
       };
 
@@ -1536,21 +1550,19 @@
 
       async function fetchFertagusNewAPI() {
         const currentDB = activeTab === "lisboa" ? DB_LISBOA : DB_MARGEM;
-        const isSpecialDay = checkDayType() === 2;
         if (!currentDB) return [];
         try {
           const res = await fetch(API_FERTAGUS_NEW + "?t=" + Date.now(), {
-            // timestamp para browsers serem obrigados a atualizar
             method: "GET",
             headers: {
               "x-api-key": CLIENT_API_KEY,
               Accept: "application/json",
             },
-            cache: "no-store", // não guardar cache em dispositivo
+            cache: "no-store",
           });
           if (!res.ok) throw new Error("API Middleware Error");
           const data = await res.json();
-          const currentDayType = checkDayType();
+
           const futureTrains = data.futureTrains || {};
           const apiTrains = Object.values(data).filter(
             (v) => v && v["id-comboio"],
@@ -1560,24 +1572,42 @@
           );
           const dstInfo = FERTAGUS_STATIONS.find((s) => s.key === fertagusDest);
           const now = new Date();
+
+          // FIX #2: avalia o dia operacional de cada comboio
           const allDbTrips = currentDB.trips.filter((trip) => {
             if (!trip[fertagusOrigin] || !trip[fertagusDest]) return false;
-            if (trip.horario === 0 && currentDayType !== 0) return false;
-            if (trip.horario === 2 && currentDayType !== 2) return false;
-            return (
-              parseTimeStr(trip[fertagusOrigin]) <
-              parseTimeStr(trip[fertagusDest])
-            );
+
+            const trainDate = window.parseTimeStr(trip[fertagusOrigin]);
+            const destDate = window.parseTimeStr(trip[fertagusDest]);
+            if (!trainDate || !destDate || trainDate >= destDate) return false;
+
+            // Descobre a que dia pertence este comboio específico
+            const opDate = new Date(trainDate);
+            if (opDate.getHours() < 5) opDate.setDate(opDate.getDate() - 1);
+            const trainIsWeekend = isWeekendOrHoliday(opDate);
+
+            const hType = parseInt(trip.horario);
+            if (hType === 1) return true;
+            if (hType === 0 && !trainIsWeekend) return true;
+            if (hType === 2 && trainIsWeekend) return true;
+            return false;
           });
 
           const processed = allDbTrips
             .map((dbTrain) => {
               const scheduledTimeStr = dbTrain[fertagusOrigin];
-              const scheduledDate = parseTimeStr(scheduledTimeStr);
+              const scheduledDate = window.parseTimeStr(scheduledTimeStr);
               const scheduledDestStr = dbTrain[fertagusDest];
+
+              // FIX #3: avalia se as carruagens/ocupação devem usar o formato de FDS para este comboio
+              const opDate = new Date(scheduledDate);
+              if (opDate.getHours() < 5) opDate.setDate(opDate.getDate() - 1);
+              const trainIsSpecialDay = isWeekendOrHoliday(opDate);
+
               const apiTrain = apiTrains.find(
                 (t) => t["id-comboio"] == dbTrain.id,
               );
+
               let originNode = null;
               let destNode = null;
               if (apiTrain) {
@@ -1589,6 +1619,7 @@
                     n.NomeEstacao.toUpperCase() === dstInfo.name.toUpperCase(),
                 );
               }
+
               let mainTime = scheduledTimeStr;
               let secondaryTime = null;
               let status = "Programado";
@@ -1636,16 +1667,16 @@
                   if (obsMatch) {
                     mainTime = obsMatch[1];
                     if (!explicitDelayFound) {
-                      const dProg = parseTimeStr(progStr);
-                      const dObs = parseTimeStr(mainTime);
+                      const dProg = window.parseTimeStr(progStr);
+                      const dObs = window.parseTimeStr(mainTime);
                       diffMin = Math.round((dObs - dProg) / 60000);
                     }
                   } else if (explicitDelayFound) {
                     mainTime = addMinutes(progStr, diffMin);
                   } else if (prevStr && prevStr !== progStr) {
                     mainTime = prevStr.substring(0, 5);
-                    const dProg = parseTimeStr(progStr);
-                    const dPrev = parseTimeStr(mainTime);
+                    const dProg = window.parseTimeStr(progStr);
+                    const dPrev = window.parseTimeStr(mainTime);
                     diffMin = Math.round((dPrev - dProg) / 60000);
                   } else {
                     mainTime = progStr.substring(0, 5);
@@ -1746,7 +1777,8 @@
               } else {
                 if (scheduledDate < now) return null;
               }
-              const effectiveDate = parseTimeStr(mainTime);
+
+              const effectiveDate = window.parseTimeStr(mainTime);
               return {
                 id: dbTrain.id,
                 num: dbTrain.id,
@@ -1760,8 +1792,8 @@
                 pulse: pulse,
                 isLive: isLive,
                 isSuppressed: isSuppressed,
-                carriages: isSpecialDay ? 4 : dbTrain.carruagens,
-                occupancy: isSpecialDay ? null : dbTrain.ocupacao,
+                carriages: trainIsSpecialDay ? 4 : dbTrain.carruagens,
+                occupancy: trainIsSpecialDay ? null : dbTrain.ocupacao,
                 context: context,
                 isPassed: hasPassedOrigin,
                 isEffectiveFuture: !hasPassedOrigin && !isSuppressed,
@@ -1772,13 +1804,13 @@
             })
             .filter((t) => t !== null)
             .sort((a, b) => a.effectiveDate - b.effectiveDate);
+
           return processed;
         } catch (e) {
           console.error("Erro Fertagus API:", e);
           return [];
         }
       }
-
       async function getTrains() {
         const apiData = await fetchFertagusNewAPI();
         return apiData;
