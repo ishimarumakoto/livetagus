@@ -4,7 +4,6 @@ const cors = require("cors");
 const fetch = require("node-fetch");
 const path = require("path");
 const fs = require("fs");
-const analytics = require("./analytics");
 
 const app = express();
 app.use(cors());
@@ -221,6 +220,7 @@ const parseSmartTime = (timeStr, now = new Date()) => {
   // madrugada (ex: 01h) e o comboio é da noite anterior (ex: 23h).
   if (nowH < 5 && h >= 18) {
     d.setDate(d.getDate() - 1);
+  } else if (nowH >= 20 && h < 5) {
   }
   // noite (ex: 22h) e o comboio é da manhã (ex: 06h), é no dia seguinte.
   else if (nowH >= 18 && h < 16) {
@@ -356,6 +356,7 @@ const checkOfflineTrains = async () => {
     `[FUTURE CHECK] ${new Date().toLocaleTimeString()} - A atualizar estados futuros (15m interval)...`,
   );
   const now = new Date();
+  // const { isWeekendOrHoliday } = getOperationalInfo(now);
   const activeIds = Object.keys(OUTPUT_CACHE);
 
   // FIX #2: Pre-processar a hora de início para avaliar o dia correto de cada comboio
@@ -403,25 +404,15 @@ const checkOfflineTrains = async () => {
 // --- PROCESSAMENTO ---
 const processTrain = async (richInfo, originDateStr) => {
   const trainId = String(richInfo.id);
-  // criar chave única diária
-  const memKey = `${trainId}_${originDateStr}`;
   const nowTime = Date.now();
   const nowObj = new Date();
   const direction = richInfo.direction;
 
-  // usar memKey em vez de trainId
-  if (!TRAIN_MEMORY[memKey]) {
-    TRAIN_MEMORY[memKey] = {
-      history: {},
-      lastDelay: 0,
-      nextWakeUp: 0,
-      frozenPredictions: {},
-    };
+  if (!TRAIN_MEMORY[trainId]) {
+    TRAIN_MEMORY[trainId] = { history: {}, lastDelay: 0, nextWakeUp: 0 };
   }
-  const mem = TRAIN_MEMORY[memKey];
-  if (!mem.frozenPredictions) mem.frozenPredictions = {};
+  const mem = TRAIN_MEMORY[trainId];
 
-  // OUTPUT_CACHE continua a usar apenas o trainId para a App não quebrar!
   if (nowTime < mem.nextWakeUp && OUTPUT_CACHE[trainId]) {
     return OUTPUT_CACHE[trainId];
   }
@@ -480,9 +471,6 @@ const processTrain = async (richInfo, originDateStr) => {
     });
   }
 
-  // FIX #5: para declarar como live basta uma estação como passou true
-  isLive = isLive || Object.keys(mem.history).length > 0;
-
   let turnaroundDelay = 0;
   if (direction === "margem") {
     const scheduledRoma = departureTrip
@@ -497,7 +485,6 @@ const processTrain = async (richInfo, originDateStr) => {
     }
   }
 
-  /* Deixar de apagar comboios, analytics passa a tratar disso
   if (isLive) {
     const lastNode = nodes[nodes.length - 1];
     if (lastNode && lastNode.ComboioPassou) {
@@ -512,7 +499,7 @@ const processTrain = async (richInfo, originDateStr) => {
         return null;
       }
     }
-  }*/
+  }
 
   const displayDate = originDateStr.split("-").reverse().join("/");
   const refTrip = departureTrip || richInfo;
@@ -545,8 +532,7 @@ const processTrain = async (richInfo, originDateStr) => {
   let newStationPassed = false;
 
   nodes.forEach((node) => {
-    // FIX #5: Se já existe um registo na nossa memoria, o comboio passou garantidamente.
-    const passed = node.ComboioPassou || !!mem.history[node.NodeID];
+    const passed = node.ComboioPassou;
 
     if (passed && !mem.history[node.NodeID]) {
       newStationPassed = true;
@@ -588,7 +574,7 @@ const processTrain = async (richInfo, originDateStr) => {
       node.NomeEstacao,
       direction,
     );
-    let horaPrevistaFinal = horaPartidaProgStr; // inicia com a partida teórica
+    let horaPrevistaFinal = horaPartidaProgStr; // Inicia com a partida teórica
 
     if (datePartidaProg && !passed) {
       // Previsão = Hora de Partida Planeada + Atraso Acumulado + Ajuste Ponte
@@ -597,79 +583,32 @@ const processTrain = async (richInfo, originDateStr) => {
           datePartidaProg.getTime() + (currentDelay + bridgeAdjustment) * 1000,
         ),
       );
-      // GUARDA SEMPRE A ÚLTIMA PREVISÃO ENQUANTO NÃO PASSAR
-      mem.frozenPredictions[node.NodeID] = horaPrevistaFinal;
     }
-
-    // Se já passou, usa a previsão congelada. Se não houver (ex: o servidor iniciou agora), usa a HoraReal.
-    let previsaoCongelada = passed
-      ? mem.frozenPredictions[node.NodeID] || horaRealStr
-      : horaPrevistaFinal;
 
     trainOutput.NodesPassagemComboio.push({
       ComboioPassou: passed,
-      HoraProgramada: horaPartidaProgStr,
+      HoraProgramada: horaPartidaProgStr, // Passamos a mostrar a partida programada
       HoraReal: passed ? horaRealStr : "HH:MM:SS",
       AtrasoReal: passed ? atrasoNode : 0,
-      HoraPrevista: previsaoCongelada, // horaprevista mantêm para controlo de precisão
+      HoraPrevista: passed ? horaRealStr : horaPrevistaFinal,
       EstacaoID: node.NodeID,
       NomeEstacao: node.NomeEstacao,
     });
   });
 
   if (newStationPassed) {
-    mem.nextWakeUp = Date.now() + 90000; // delay de min e meio para próxima chamada (cooldown)
+    mem.nextWakeUp = Date.now() + 120000;
   }
 
   trainOutput.AtrasoCalculado = currentDelay;
   mem.lastDelay = currentDelay;
-
-  if (isLive) {
-    const lastNode =
-      trainOutput.NodesPassagemComboio[
-        trainOutput.NodesPassagemComboio.length - 1
-      ];
-    if (lastNode && lastNode.ComboioPassou) {
-      const isEnd =
-        (direction === "lisboa" &&
-          lastNode.NomeEstacao.toUpperCase().includes("ROMA")) ||
-        (direction === "margem" &&
-          (lastNode.NomeEstacao.toUpperCase().includes("COINA") ||
-            lastNode.NomeEstacao.toUpperCase().includes("SETÚBAL")));
-
-      if (isEnd) {
-        // garante estatisticas apenas uma
-        if (!mem.isFinished) {
-          analytics.processCompletedTrain(
-            trainOutput.NodesPassagemComboio,
-            mem.frozenPredictions,
-            mem.history,
-          );
-          mem.isFinished = true; // marca como terminado em vez de apagar
-        }
-        return null; // Remove da cache visual da app
-      }
-    }
-  }
-
   return trainOutput;
 };
 
 // --- LOOP PRINCIPAL ---
 const updateCycle = async () => {
   const now = new Date();
-  const opInfo = getOperationalInfo(now);
-  const isWeekendOrHoliday = opInfo.isWeekendOrHoliday;
-  const currentOpDate = opInfo.operationalDateStr;
-
-  // limpeza de memoria - apagar os registos de dias anteriores para libertar RAM
-  // FIX #4: Limpeza inteligente - só apaga memórias estritamente anteriores ao dia operacional
-  for (const key in TRAIN_MEMORY) {
-    const keyDateStr = key.split("_")[1]; // Extrai a data da chave (ex: 2026-03-02)
-    if (keyDateStr && keyDateStr < currentOpDate) {
-      delete TRAIN_MEMORY[key];
-    }
-  }
+  const { isWeekendOrHoliday } = getOperationalInfo(now);
 
   const activeRichTrains = RICH_SCHEDULE.map((t) => {
     let startStr =
@@ -683,11 +622,6 @@ const updateCycle = async () => {
     const end = parseSmartTime(endStr, now);
     if (!start || !end) return null;
 
-    // Se o comboio começa antes da meia-noite mas acaba depois, força a correção
-    if (end.getTime() < start.getTime()) {
-      end.setDate(end.getDate() + 1);
-    }
-
     return {
       ...t,
       startObj: start,
@@ -697,12 +631,7 @@ const updateCycle = async () => {
   }).filter((t) => {
     if (!t) return false;
 
-    const memKey = `${t.id}_${t.originDateStr}`;
-    const mem = TRAIN_MEMORY[memKey];
-
-    if (mem && mem.isFinished) return false;
-
-    const isBeingTracked = !!mem;
+    const isBeingTracked = !!TRAIN_MEMORY[String(t.id)];
 
     // FIX #2: Avalia se o dia específico deste comboio é de fim de semana
     const trainOpInfo = getOperationalInfo(t.startObj);
@@ -713,7 +642,6 @@ const updateCycle = async () => {
       hType === 1 ||
       (isTrainWeekendOrHoliday && hType === 2) ||
       (!isTrainWeekendOrHoliday && hType === 0);
-
     if (!matchesDay) return false;
 
     const nowTime = now.getTime();
@@ -750,24 +678,13 @@ const scheduleNextTick = () => {
 
 // --- ROUTES ---
 
-// endpoint para controlo de precisao
-app.get("/status", (req, res) => res.json(analytics.getStatusReport()));
+// Rota protegida com middleware
+app.get("/fertagus", protectRoute, (req, res) => res.json(OUTPUT_CACHE));
 
-// Rota protegida com middleware e anti cache
-app.get("/fertagus", protectRoute, (req, res) => {
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate",
-  );
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("Surrogate-Control", "no-store");
-  res.json(OUTPUT_CACHE);
-});
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.5.0",
+    version: "4.3.5",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
@@ -775,7 +692,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.7.2 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.3.5 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();
