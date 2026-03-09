@@ -12,12 +12,11 @@ window.setTheme = function (mode) {
   applyTheme();
 };
 
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener(
-  "change",
-  () => {
+window
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", () => {
     if (currentTheme === "system") applyTheme();
-  },
-);
+  });
 
 window.applyTheme = function () {
   let effectiveDark = false;
@@ -60,10 +59,8 @@ window.applyTheme = function () {
 
   const logoLight = "./imagens/logotransparente.svg";
   const logoDark = "./imagens/icon.svg";
-  const badgeDark =
-    "https://www.netlify.com/img/global/badges/netlify-dark.svg";
-  const badgeLight =
-    "https://www.netlify.com/img/global/badges/netlify-light.svg";
+  const badgeDark = "./imagens/netlify-dark.svg";
+  const badgeLight = "./imagens/netlify-light.svg";
 
   if (isDarkMode) {
     if (navLogo) navLogo.src = logoDark;
@@ -84,8 +81,7 @@ window.loadSettings = function () {
   const savedTheme = localStorage.getItem("theme");
   setTheme(savedTheme || "system");
 
-  enableRegularStations =
-    localStorage.getItem("enable_regular") === "true";
+  enableRegularStations = localStorage.getItem("enable_regular") === "true";
   enableSmartSchedule = localStorage.getItem("enable_smart") === "true";
 
   const savedSync = localStorage.getItem("pref_sync_stations");
