@@ -1,4 +1,4 @@
-const CACHE_NAME = "livetagus-v.b52.09032026";
+const CACHE_NAME = "livetagus-v.b54.09032026";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
@@ -7,7 +7,7 @@ const ASSETS_TO_CACHE = [
   "./app-alerts.js",
   "./app-config.js",
   "./app-init.js",
-  "./app-setting.js",
+  "./app-settings.js",
   "./app-trains.js",
   "./app-ui.js",
   "./lucide-icons.js",
@@ -91,7 +91,6 @@ self.addEventListener("fetch", (event) => {
       // correção: nada em cache -> web
       return fetch(event.request).catch((err) => {
         console.error("[SW] Falha na rede:", err);
-        // Opcional: No futuro, podes retornar uma página offline.html aqui
         // return caches.match("./offline-page.html");
       });
     }),
