@@ -1,7 +1,8 @@
-const CACHE_NAME = "livetagus-v.b48.09032026";
+const CACHE_NAME = "livetagus-v.b52.09032026";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
+  "./index.js",
   "./app.html",
   "./app-alerts.js",
   "./app-config.js",
@@ -11,8 +12,13 @@ const ASSETS_TO_CACHE = [
   "./app-ui.js",
   "./lucide-icons.js",
   "./spotifycard.js",
+  "./sudoku.html",
+  "./sudoku.js",
+  "./sudoku-train.js",
   "./horarios.html",
+  "./horarios.js",
   "./privacidade.html",
+  "./tabs.js",
   "./output.css",
   "./menu.js",
   "./offline.js",
