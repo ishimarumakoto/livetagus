@@ -170,7 +170,13 @@ const AnalyticsManager = {
    * @param {number}  actualArrivalMs  Timestamp real de chegada (mem.history[NodeID])
    * @param {boolean} hasTurnaround    Se turnaround prediction estava ativo
    */
-  recordArrival(trainId, stationKey, direction, actualArrivalMs, hasTurnaround) {
+  recordArrival(
+    trainId,
+    stationKey,
+    direction,
+    actualArrivalMs,
+    hasTurnaround,
+  ) {
     const snap = this.snapshots[trainId]?.[stationKey];
     if (!snap) return; // Sem snapshot, nada a comparar
 
@@ -217,18 +223,28 @@ const AnalyticsManager = {
   /**
    * Computa as estatísticas a partir do array de medições.
    * "A horas" = |delta| ≤ 60 segundos.
+   * Todos os Object.entries / Object.values têm null-guards defensivos.
    */
   _computeStats() {
+    const measurements = Array.isArray(this.measurements)
+      ? this.measurements
+      : [];
+
     // Agrupar deltas por sentido e por estação
-    const byStation = {}; // { 'lisboa:pragal': [delta, ...], ... }
+    const byStation = {}; // { 'lisboa:pragal': { direction, stationKey, deltas[] } }
     const byDirection = { lisboa: [], margem: [] };
 
-    this.measurements.forEach(({ stationKey, direction, deltaSeconds }) => {
+    measurements.forEach((m) => {
+      if (!m || typeof m !== "object") return;
+      const { stationKey, direction, deltaSeconds } = m;
+      if (!stationKey || !direction || typeof deltaSeconds !== "number") return;
+
       const key = `${direction}:${stationKey}`;
       if (!byStation[key])
         byStation[key] = { direction, stationKey, deltas: [] };
       byStation[key].deltas.push(deltaSeconds);
-      byDirection[direction].push(deltaSeconds);
+
+      if (byDirection[direction]) byDirection[direction].push(deltaSeconds);
     });
 
     /**
@@ -236,7 +252,7 @@ const AnalyticsManager = {
      * Devolve null se não houver dados.
      */
     const summarize = (deltas) => {
-      if (!deltas || deltas.length === 0) return null;
+      if (!Array.isArray(deltas) || deltas.length === 0) return null;
       const count = deltas.length;
       const onTime = deltas.filter((d) => Math.abs(d) <= 60).length;
       const sum = deltas.reduce((a, b) => a + b, 0);
@@ -250,9 +266,12 @@ const AnalyticsManager = {
 
     // Stats por estação
     const stations = { lisboa: {}, margem: {} };
-    Object.values(byStation).forEach(({ direction, stationKey, deltas }) => {
+    Object.values(byStation || {}).forEach((entry) => {
+      if (!entry) return;
+      const { direction, stationKey, deltas } = entry;
+      if (!direction || !stationKey || !Array.isArray(deltas)) return;
       const s = summarize(deltas);
-      if (s) {
+      if (s && stations[direction]) {
         stations[direction][stationKey] = {
           ...s,
           name: STATION_DISPLAY_NAMES[stationKey] || stationKey,
@@ -263,12 +282,14 @@ const AnalyticsManager = {
     // Stats por sentido
     const directions = {};
     ["lisboa", "margem"].forEach((dir) => {
-      const s = summarize(byDirection[dir]);
+      const s = summarize(byDirection[dir] || []);
       if (s) directions[dir] = s;
     });
 
     // Stats globais
-    const allDeltas = this.measurements.map((m) => m.deltaSeconds);
+    const allDeltas = measurements
+      .filter((m) => m && typeof m.deltaSeconds === "number")
+      .map((m) => m.deltaSeconds);
     const overall = summarize(allDeltas) || {
       accuracy: null,
       avgDelaySec: null,
@@ -280,13 +301,14 @@ const AnalyticsManager = {
       overall,
       directions,
       stations,
-      totalMeasurements: this.measurements.length,
+      totalMeasurements: measurements.length,
       lastUpdated: Date.now(),
     };
   },
 
   /**
-   * Devolve as estatísticas (com cache de CACHE_TTL_MS).
+   * Devolve as estatísticas com cache de CACHE_TTL_MS.
+   * Método principal — chamado pelo endpoint /stats no index.js.
    */
   getStats() {
     const now = Date.now();
@@ -296,6 +318,14 @@ const AnalyticsManager = {
     this._cache = this._computeStats();
     this._cacheTime = now;
     return this._cache;
+  },
+
+  /**
+   * Alias de getStats() para compatibilidade com versões anteriores do index.js
+   * que possam chamar getStatusReport() em vez de getStats().
+   */
+  getStatusReport() {
+    return this.getStats();
   },
 };
 

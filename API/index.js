@@ -253,7 +253,11 @@ const subtractMinutes = (timeStr, minutes) => {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
-const getTemporaryDelayAdjustment = (stationName, direction, pragalPassed = false) => {
+const getTemporaryDelayAdjustment = (
+  stationName,
+  direction,
+  pragalPassed = false,
+) => {
   if (direction !== "margem") return 0;
   const upper = stationName.toUpperCase();
   // O atraso da ponte aplica-se sempre ao Pragal (o comboio ainda não a cruzou).
@@ -504,9 +508,12 @@ const processTrain = async (richInfo, originDateStr) => {
   // uma vez que o comboio cruza a ponte e chega ao Pragal, o atraso medido já
   // inclui o efeito da ponte, pelo que não se deve adicionar os 90s extra ao Corroios.
   const pragalNodeId = STATION_IDS_FIXED["PRAGAL"];
-  const pragalPassed =
+  // 'let' (não 'const') porque pode ser atualizado ao vivo dentro do forEach
+  // quando o Pragal é visto como passado pela primeira vez neste ciclo.
+  let pragalPassed =
     nodes.some(
-      (n) => n.NomeEstacao.toUpperCase() === "PRAGAL" && n.ComboioPassou === true,
+      (n) =>
+        n.NomeEstacao.toUpperCase() === "PRAGAL" && n.ComboioPassou === true,
     ) || !!mem.history[pragalNodeId];
 
   if (isLive) {
@@ -519,6 +526,23 @@ const processTrain = async (richInfo, originDateStr) => {
           (lastNode.NomeEstacao.toUpperCase().includes("COINA") ||
             lastNode.NomeEstacao.toUpperCase().includes("SETÚBAL")));
       if (isEnd) {
+        // FIX Analytics Bug 1: o forEach nunca chega a correr quando isEnd é true,
+        // por isso o recordArrival para a estação terminal nunca seria chamado.
+        // Resolvemos aqui, antes de limpar a memória.
+        // Apenas faz sentido se o node chegou pela primeira vez neste ciclo.
+        if (!mem.history[lastNode.NodeID]) {
+          const lastKey =
+            STATION_MAP_IP_TO_JSON[lastNode.NomeEstacao.toUpperCase()];
+          if (lastKey) {
+            AnalyticsManager.recordArrival(
+              trainId,
+              lastKey,
+              direction,
+              Date.now(),
+              turnaroundDelay > 0,
+            );
+          }
+        }
         AnalyticsManager.cleanupTrain(trainId);
         delete TRAIN_MEMORY[trainId];
         return null;
@@ -594,6 +618,16 @@ const processTrain = async (richInfo, originDateStr) => {
         atrasoNode =
           Math.floor((timestamp - dateChegadaProg.getTime()) / 1000) - 10; // Retirados 10 segundos para delays na conexão
         currentDelay = atrasoNode;
+      }
+      // FIX Analytics Bug 2: se o Pragal acabou de ser passado neste ciclo,
+      // atualiza pragalPassed imediatamente para que o Corroios (processado a seguir)
+      // não receba bridgeAdjustment=90 incorretamente na mesma iteração.
+      if (
+        isNewlyPassed &&
+        node.NomeEstacao.toUpperCase() === "PRAGAL" &&
+        direction === "margem"
+      ) {
+        pragalPassed = true;
       }
       // Analytics: regista chegada real (só na primeira passagem da estação)
       if (isNewlyPassed && stationKey && dateChegadaProg) {
@@ -754,7 +788,7 @@ app.get("/stats", (req, res) => {
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.4.0",
+    version: "4.4.2",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
@@ -762,7 +796,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.4.0 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.4.2 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();
