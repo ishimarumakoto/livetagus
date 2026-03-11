@@ -95,12 +95,19 @@ const STATION_ORDER_LISBOA = [
 const STATION_ORDER_MARGEM = [...STATION_ORDER_LISBOA].reverse();
 
 const API_BASE = "https://www.infraestruturasdeportugal.pt/negocios-e-servicos";
+
+// FIX #6: Cache-Control e Pragma forçam a IP (e qualquer CDN/proxy intermédio)
+// a retornar sempre uma resposta fresca. Sem estes headers, o servidor Node pode
+// receber respostas em cache enquanto o browser (que envia no-cache nativamente)
+// já veria dados atualizados — causando o delay de propagação de 1-3 min observado.
 const FETCH_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   Referer: "https://www.infraestruturasdeportugal.pt/",
   Accept: "application/json, text/javascript, */*; q=0.01",
   "X-Requested-With": "XMLHttpRequest",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
 };
 
 // --- BASE DE DADOS OFFLINE ---
@@ -175,9 +182,25 @@ loadDataFiles();
 
 // --- MEMÓRIA ---
 let OUTPUT_CACHE = {};
-let TRAIN_MEMORY = {}; // { [id]: { history: {}, lastDelay: 0, nextWakeUp: 0 } }
+let TRAIN_MEMORY = {}; // { [id]: { history: {}, lastDelay: 0, nextWakeUp: 0, lastResult: null } }
 let FUTURE_TRAINS_CACHE = {};
-let IS_CYCLE_RUNNING = false; // #Fix 2
+let IS_CYCLE_RUNNING = false;
+
+// --- GHOST TRAIN STATE ---
+//
+// Sistema de deteção e gestão de comboios parados sem anúncio oficial.
+//
+// GHOST_TRAINS: comboios removidos da API pública em monitorização de fundo
+// (Stage 2: 30-60 min sem progressão na próxima estação prevista).
+// Verificados de minuto a minuto para detetar retoma de circulação.
+// Estrutura: { [trainId]: { richInfo, originDateStr, nextStationExpected: Date,
+//                           intervalHandle, lastPassedCount } }
+//
+// GHOST_SUPPRESSED: comboios confirmados como suprimidos ao vivo (Stage 3: 60+ min).
+// Excluídos de OUTPUT_CACHE e checkOfflineTrains.
+// Mantidos em FUTURE_TRAINS_CACHE como "SUPRIMIDO" para tratamento correto pela app.
+let GHOST_TRAINS = {};
+let GHOST_SUPPRESSED = new Set();
 
 // --- DATE & SCHEDULE HELPERS ---
 
@@ -218,13 +241,11 @@ const parseSmartTime = (timeStr, now = new Date()) => {
 
   const nowH = now.getHours();
 
-  // FIX #2: Ajuste inteligente do dia
-  // madrugada (ex: 01h) e o comboio é da noite anterior (ex: 23h).
+  // FIX #2: madrugada (ex: 01h) e o comboio é da noite anterior (ex: 23h).
   if (nowH < 5 && h >= 18) {
     d.setDate(d.getDate() - 1);
   }
-  // FIX #3: noite (ex: 23h) e o comboio é de madrugada (ex: 00h-04h) → é no dia seguinte.
-  // Ex: comboio 14306 (00:06), 14200 (00:03/01:06), 14003 (00:23), 14007 (01:23), 14201 (00:53).
+  // FIX #3: noite (ex: 23h) e o comboio é de madrugada (ex: 00h-04h) → dia seguinte.
   else if (nowH >= 20 && h < 5) {
     d.setDate(d.getDate() + 1);
   }
@@ -263,13 +284,14 @@ const getTemporaryDelayAdjustment = (
   // O atraso da ponte aplica-se sempre ao Pragal (o comboio ainda não a cruzou).
   if (upper === "PRAGAL") return 90;
   // O atraso aplica-se ao Corroios APENAS enquanto o comboio ainda não passou o Pragal.
-  // Após o comboio passar o Pragal, o atraso medido já inclui o efeito da ponte,
-  // por isso não se deve voltar a somar os 90s para evitar dupla contagem.
+  // Após o comboio cruzar a ponte, o atraso medido já inclui o efeito da ponte,
+  // por isso não se deve somar os 90s para evitar dupla contagem.
   if (upper === "CORROIOS" && !pragalPassed) return 90;
   return 0;
 };
 
 // --- FETCHING ---
+
 const fetchDetails = async (tid, dateStr) => {
   const url = `${API_BASE}/horarios-ncombio/${tid}/${dateStr}`;
   try {
@@ -336,8 +358,8 @@ const checkTurnaroundDelay = (
       );
 
       if (predictedArrivalDate && scheduledDepartureDate) {
-        // Tempo mínimo de paragem técnica Fertagus: 4 minutos.
-        const minTurnaroundMs = 4 * 60 * 1000;
+        // Tempo mínimo de paragem técnica Fertagus: 3 minutos.
+        const minTurnaroundMs = 3 * 60 * 1000; // DIminuido para 3 minutos após extensas análises de precisão
         const minDepartureDate = new Date(
           predictedArrivalDate.getTime() + minTurnaroundMs,
         );
@@ -367,10 +389,8 @@ const checkOfflineTrains = async () => {
     `[FUTURE CHECK] ${new Date().toLocaleTimeString()} - A atualizar estados futuros (15m interval)...`,
   );
   const now = new Date();
-  // const { isWeekendOrHoliday } = getOperationalInfo(now);
   const activeIds = Object.keys(OUTPUT_CACHE);
 
-  // FIX #2: Pre-processar a hora de início para avaliar o dia correto de cada comboio
   const candidates = RICH_SCHEDULE.map((t) => {
     let startStr =
       t.direction === "lisboa" ? t.setubal || t.coina : t.roma_areeiro;
@@ -381,7 +401,15 @@ const checkOfflineTrains = async () => {
     if (!t || !t.startObj) return false;
     if (activeIds.includes(String(t.id))) return false;
 
-    // A avaliação é feita sobre o startObj do comboio e não do "now" global
+    // Não re-verificar comboios confirmados como ghost suppressed (Stage 3):
+    // já estão no FUTURE_TRAINS_CACHE como SUPRIMIDO e não devem ser sobrescritos.
+    if (GHOST_SUPPRESSED.has(String(t.id))) return false;
+
+    // Não re-verificar comboios em monitorização ghost ativa (Stage 2):
+    // o initiateGhostMonitoring já faz as verificações de minuto a minuto.
+    if (GHOST_TRAINS[String(t.id)]) return false;
+
+    // Avalia o dia específico deste comboio
     const trainOpInfo = getOperationalInfo(t.startObj);
     const isTrainWeekendOrHoliday = trainOpInfo.isWeekendOrHoliday;
 
@@ -399,7 +427,7 @@ const checkOfflineTrains = async () => {
     const chunk = candidates.slice(i, i + CONCURRENCY);
     await Promise.all(
       chunk.map(async (t) => {
-        const dateStr = formatDateStr(t.startObj); // Usa a data exata do comboio
+        const dateStr = formatDateStr(t.startObj);
         const details = await fetchDetails(String(t.id), dateStr);
         if (details && details.SituacaoComboio) {
           results[String(t.id)] =
@@ -409,7 +437,129 @@ const checkOfflineTrains = async () => {
     );
     await new Promise((r) => setTimeout(r, 50));
   }
+
   FUTURE_TRAINS_CACHE = results;
+
+  // Re-injetar os ghost suppressed após a reconstrução do FUTURE_TRAINS_CACHE
+  // para garantir que a app os trata sempre como suprimidos.
+  for (const ghostId of GHOST_SUPPRESSED) {
+    FUTURE_TRAINS_CACHE[ghostId] = "SUPRIMIDO";
+  }
+};
+
+// --- GHOST TRAIN MONITORING ---
+
+/**
+ * Inicia a monitorização em background de um comboio parado sem anúncio (Stage 2).
+ *
+ * O comboio passou pelo menos uma estação (isLive=true) mas ficou imobilizado
+ * sem que a IP declare SUPRIMIDO. A LiveTagus retira-o da API pública para não
+ * enganar utilizadores e verifica de minuto a minuto se retomou circulação.
+ *
+ * Timings:
+ *   Stage 2 → entrada: 30+ min desde HoraPrevista da próxima estação
+ *   Stage 3 → 60+ min desde HoraPrevista da próxima estação (30 min de monitoring)
+ *
+ * @param {string} trainId                - ID do comboio
+ * @param {object} richInfo               - Entrada do RICH_SCHEDULE
+ * @param {string} originDateStr          - Data operacional (YYYY-MM-DD)
+ * @param {Date}   nextStationExpectedDate - HoraPrevista da próxima estação não visitada
+ * @param {number} currentPassedCount     - Nº de estações já passadas na deteção
+ */
+const initiateGhostMonitoring = (
+  trainId,
+  richInfo,
+  originDateStr,
+  nextStationExpectedDate,
+  currentPassedCount,
+) => {
+  // Evita duplicação se já está em monitorização
+  if (GHOST_TRAINS[trainId]) return;
+
+  console.log(
+    `[GHOST] Stage 2: Comboio ${trainId} removido da API pública. ` +
+      `Monitorização background iniciada. ` +
+      `Próxima estação esperada: ${nextStationExpectedDate.toLocaleTimeString("pt-PT")}.`,
+  );
+
+  const intervalHandle = setInterval(async () => {
+    const ghost = GHOST_TRAINS[trainId];
+    if (!ghost) return; // Entrada removida externamente — intervalo será limpo
+
+    const minutesLate =
+      (Date.now() - ghost.nextStationExpected.getTime()) / 60000;
+
+    // === STAGE 3: 60+ minutos sem progressão ===
+    // O comboio passou 30 min em Stage 2 sem retomar → supressão confirmada.
+    if (minutesLate >= 60) {
+      console.log(
+        `[GHOST] Stage 3: Comboio ${trainId} confirmado suprimido ao vivo ` +
+          `(${minutesLate.toFixed(1)} min sem progressão). Removido definitivamente da API.`,
+      );
+      FUTURE_TRAINS_CACHE[String(trainId)] = "SUPRIMIDO";
+      GHOST_SUPPRESSED.add(String(trainId));
+      clearInterval(ghost.intervalHandle);
+      delete GHOST_TRAINS[trainId];
+      delete TRAIN_MEMORY[trainId]; // Liberta RAM
+      return;
+    }
+
+    // --- Verificação de retoma de circulação (minuto a minuto) ---
+    try {
+      const details = await fetchDetails(trainId, ghost.originDateStr);
+
+      if (details && details.NodesPassagemComboio) {
+        // A IP declarou SUPRIMIDO entretanto → Stage 3 imediato, sem esperar 60 min
+        if (
+          details.SituacaoComboio &&
+          details.SituacaoComboio.toUpperCase().includes("SUPRIMIDO")
+        ) {
+          console.log(
+            `[GHOST] Comboio ${trainId} declarado SUPRIMIDO pela IP durante monitorização. Stage 3 imediato.`,
+          );
+          FUTURE_TRAINS_CACHE[String(trainId)] = "SUPRIMIDO";
+          GHOST_SUPPRESSED.add(String(trainId));
+          clearInterval(ghost.intervalHandle);
+          delete GHOST_TRAINS[trainId];
+          delete TRAIN_MEMORY[trainId];
+          return;
+        }
+
+        const newPassedCount = details.NodesPassagemComboio.filter(
+          (n) => n.ComboioPassou,
+        ).length;
+
+        // Comboio retomou: passou uma nova estação desde que entrou em Stage 2
+        if (newPassedCount > ghost.lastPassedCount) {
+          console.log(
+            `[GHOST] Comboio ${trainId} retomou circulação ` +
+              `(${ghost.lastPassedCount} → ${newPassedCount} estações passadas). ` +
+              `Removido da monitorização ghost — o próximo ciclo re-integra na API.`,
+          );
+          clearInterval(ghost.intervalHandle);
+          delete GHOST_TRAINS[trainId];
+          // O próximo updateCycle deteta-o dentro da janela e volta a processá-lo.
+          return;
+        }
+
+        // Atualiza o contador para a próxima verificação
+        ghost.lastPassedCount = newPassedCount;
+      }
+    } catch (e) {
+      console.error(
+        `[GHOST] Erro na verificação do comboio ${trainId}:`,
+        e.message,
+      );
+    }
+  }, 60000); // Verifica de minuto a minuto
+
+  GHOST_TRAINS[trainId] = {
+    richInfo,
+    originDateStr,
+    nextStationExpected: nextStationExpectedDate,
+    intervalHandle,
+    lastPassedCount: currentPassedCount,
+  };
 };
 
 // --- PROCESSAMENTO ---
@@ -419,18 +569,21 @@ const processTrain = async (richInfo, originDateStr) => {
   const nowObj = new Date();
   const direction = richInfo.direction;
 
-  // inicializaçao da memoria
+  // Inicialização da memória
   if (!TRAIN_MEMORY[trainId]) {
     TRAIN_MEMORY[trainId] = {
       history: {},
       lastDelay: 0,
       nextWakeUp: 0,
-      lastResult: null, // FIx #2
+      lastResult: null,
     };
   }
   const mem = TRAIN_MEMORY[trainId];
 
-  // Fix #2 - usar mem.lastResult em vez de OUTPUT_CACHE[trainId]
+  // FIX nextWakeUp: reduzido de 120 000ms para 60 000ms.
+  // O valor anterior criava um período "cego" demasiado longo após cada passagem
+  // de estação. Em Roma-Areeiro (primeiro nó sentido Margem), os 120s impediam
+  // a deteção da partida durante 2 min — muito acima do intervalo de 10s pretendido.
   if (nowTime < mem.nextWakeUp && mem.lastResult) {
     return mem.lastResult;
   }
@@ -504,12 +657,9 @@ const processTrain = async (richInfo, originDateStr) => {
   }
 
   // Determina se o comboio já passou o Pragal (sentido margem).
-  // Usado para evitar dupla contagem do atraso da ponte 25 de abril no Corroios:
-  // uma vez que o comboio cruza a ponte e chega ao Pragal, o atraso medido já
-  // inclui o efeito da ponte, pelo que não se deve adicionar os 90s extra ao Corroios.
+  // Usado para evitar dupla contagem do atraso da ponte 25 de abril no Corroios.
   const pragalNodeId = STATION_IDS_FIXED["PRAGAL"];
   // 'let' (não 'const') porque pode ser atualizado ao vivo dentro do forEach
-  // quando o Pragal é visto como passado pela primeira vez neste ciclo.
   let pragalPassed =
     nodes.some(
       (n) =>
@@ -526,10 +676,8 @@ const processTrain = async (richInfo, originDateStr) => {
           (lastNode.NomeEstacao.toUpperCase().includes("COINA") ||
             lastNode.NomeEstacao.toUpperCase().includes("SETÚBAL")));
       if (isEnd) {
-        // FIX Analytics Bug 1: o forEach nunca chega a correr quando isEnd é true,
-        // por isso o recordArrival para a estação terminal nunca seria chamado.
-        // Resolvemos aqui, antes de limpar a memória.
-        // Apenas faz sentido se o node chegou pela primeira vez neste ciclo.
+        // FIX Analytics Bug 1: recordArrival para a estação terminal.
+        // O forEach nunca corre quando isEnd é true, por isso o registo é feito aqui.
         if (!mem.history[lastNode.NodeID]) {
           const lastKey =
             STATION_MAP_IP_TO_JSON[lastNode.NomeEstacao.toUpperCase()];
@@ -614,11 +762,29 @@ const processTrain = async (richInfo, originDateStr) => {
       let timestamp = mem.history[node.NodeID] || Date.now();
       mem.history[node.NodeID] = timestamp;
       horaRealStr = formatTimeHHMMSS(new Date(timestamp));
+
       if (dateChegadaProg) {
-        atrasoNode =
-          Math.floor((timestamp - dateChegadaProg.getTime()) / 1000) - 10; // Retirados 10 segundos para delays na conexão
+        const rawDelay =
+          Math.floor((timestamp - dateChegadaProg.getTime()) / 1000) - 10;
+
+        // FIX Bug 2 (Roma-Areeiro / deteção tardia): evita inflar o atraso acumulado
+        // com a latência de deteção do ciclo. No cenário problemático: ciclo sequencial
+        // de ~51s em hora de ponta → comboio que parte de Roma-Areeiro a horas (08:03)
+        // é detetado apenas às 08:04:51 → rawDelay ≈ 101s → atraso falso de ~2 min
+        // propagado para Entrecampos, Sete Rios, Campolide, etc.
+        //
+        // Regra: se o delay bruto calculado for inferior ao delay já conhecido
+        // (mem.lastDelay), mantém o anterior. Isto nunca mascara atrasos reais:
+        // se o comboio genuinamente acelerou, rawDelay seria negativo e
+        // mem.lastDelay (sempre >= 0) seria usado corretamente.
+        if (isNewlyPassed && rawDelay < mem.lastDelay) {
+          atrasoNode = mem.lastDelay;
+        } else {
+          atrasoNode = rawDelay;
+        }
         currentDelay = atrasoNode;
       }
+
       // FIX Analytics Bug 2: se o Pragal acabou de ser passado neste ciclo,
       // atualiza pragalPassed imediatamente para que o Corroios (processado a seguir)
       // não receba bridgeAdjustment=90 incorretamente na mesma iteração.
@@ -629,6 +795,7 @@ const processTrain = async (richInfo, originDateStr) => {
       ) {
         pragalPassed = true;
       }
+
       // Analytics: regista chegada real (só na primeira passagem da estação)
       if (isNewlyPassed && stationKey && dateChegadaProg) {
         AnalyticsManager.recordArrival(
@@ -658,8 +825,6 @@ const processTrain = async (richInfo, originDateStr) => {
     }
 
     // Analytics: captura snapshot da previsão para estações ainda não passadas.
-    // predictedArrivalMs usa a hora de CHEGADA programada + atraso acumulado,
-    // evitando dependência dos dwell times (chegada → partida).
     if (!passed && stationKey && dateChegadaProg) {
       const predictedArrivalMs =
         dateChegadaProg.getTime() + (currentDelay + bridgeAdjustment) * 1000;
@@ -685,20 +850,90 @@ const processTrain = async (richInfo, originDateStr) => {
     });
   });
 
+  // FIX #6: nextWakeUp reduzido de 120 000ms para 90 000ms.
   if (newStationPassed) {
-    mem.nextWakeUp = Date.now() + 120000;
+    mem.nextWakeUp = Date.now() + 90000;
+  }
+
+  // =========================================================================
+  // ADDICTION GHOST TRAIN DETECTION
+  //
+  // Aplica-se apenas a comboios live não declarados suprimidos pela IP.
+  // Deteta comboios imobilizados sem anúncio e aplica cancelamento gradual.
+  //
+  // Stage 1 (5–29 min): SituacaoComboio = "Possível Perturbação"
+  //   → comboio permanece visível na API com aviso para a app mostrar
+  //
+  // Stage 2 (30–59 min): comboio removido da OUTPUT_CACHE pública
+  //   → monitorização background de minuto a minuto (máx. 30 min)
+  //   → se retomar circulação, o próximo updateCycle re-integra-o
+  //
+  // Stage 3 (60+ min): supressão confirmada
+  //   → FUTURE_TRAINS_CACHE["id"] = "SUPRIMIDO"
+  //   → GHOST_SUPPRESSED garante exclusão permanente nesta sessão operacional
+  //   → TRAIN_MEMORY limpo para libertar RAM
+  // =========================================================================
+  if (isLive && !situacao.toUpperCase().includes("SUPRIMIDO")) {
+    const nextUnvisited = trainOutput.NodesPassagemComboio.find(
+      (n) => !n.ComboioPassou,
+    );
+
+    if (
+      nextUnvisited &&
+      nextUnvisited.HoraPrevista &&
+      nextUnvisited.HoraPrevista !== "HH:MM:SS"
+    ) {
+      // HoraPrevista dos nós não passados está em formato HH:MM:SS — extrai HH:MM
+      const nextExpectedDate = parseSmartTime(
+        nextUnvisited.HoraPrevista.substring(0, 5),
+        nowObj,
+      );
+
+      if (nextExpectedDate) {
+        const minutesLate = (nowTime - nextExpectedDate.getTime()) / 60000;
+
+        if (minutesLate >= 30) {
+          // === STAGE 2 ===
+          console.log(
+            `[GHOST] Stage 2: Comboio ${trainId} a ${minutesLate.toFixed(1)} min ` +
+              `sem chegar a "${nextUnvisited.NomeEstacao}". A remover da API pública.`,
+          );
+          const passedCount = trainOutput.NodesPassagemComboio.filter(
+            (n) => n.ComboioPassou,
+          ).length;
+          initiateGhostMonitoring(
+            trainId,
+            richInfo,
+            originDateStr,
+            nextExpectedDate,
+            passedCount,
+          );
+          // Remove imediatamente da cache pública para não servir dados obsoletos
+          // em requests que cheguem antes do fim deste ciclo updateCycle.
+          delete OUTPUT_CACHE[trainId];
+          mem.lastResult = null;
+          return null;
+        } else if (minutesLate >= 5) {
+          // === STAGE 1 ===
+          console.log(
+            `[GHOST] Stage 1: Comboio ${trainId} com possível perturbação ` +
+              `(${minutesLate.toFixed(1)} min sem progressão em "${nextUnvisited.NomeEstacao}").`,
+          );
+          trainOutput.SituacaoComboio = "Possível Perturbação";
+        }
+      }
+    }
   }
 
   trainOutput.AtrasoCalculado = currentDelay;
   mem.lastDelay = currentDelay;
-  mem.lastResult = trainOutput; // FIX #2 - guarda o resultado correto no próprio comboio
+  mem.lastResult = trainOutput; // Guarda o resultado correto no próprio comboio
   return trainOutput;
 };
 
 // --- LOOP PRINCIPAL ---
 const updateCycle = async () => {
   const now = new Date();
-  const { isWeekendOrHoliday } = getOperationalInfo(now);
 
   const activeRichTrains = RICH_SCHEDULE.map((t) => {
     let startStr =
@@ -721,9 +956,16 @@ const updateCycle = async () => {
   }).filter((t) => {
     if (!t) return false;
 
+    // FIX Paralelização: excluir comboios em monitorização ghost (Stage 2) e
+    // confirmados suprimidos (Stage 3). Sem este filtro, o updateCycle re-adicionaria
+    // à OUTPUT_CACHE um comboio que o ghost system acabou de remover.
+    if (GHOST_TRAINS[String(t.id)] || GHOST_SUPPRESSED.has(String(t.id))) {
+      return false;
+    }
+
     const isBeingTracked = !!TRAIN_MEMORY[String(t.id)];
 
-    // FIX #2: Avalia se o dia específico deste comboio é de fim de semana
+    // Avalia se o dia específico deste comboio é de fim de semana/feriado.
     const trainOpInfo = getOperationalInfo(t.startObj);
     const isTrainWeekendOrHoliday = trainOpInfo.isWeekendOrHoliday;
 
@@ -743,13 +985,50 @@ const updateCycle = async () => {
   });
 
   const newOutput = {};
-  for (const t of activeRichTrains) {
-    const result = await processTrain(t, t.originDateStr);
-    if (result) newOutput[result["id-comboio"]] = result;
-    await new Promise((r) => setTimeout(r, 50));
+
+  // FIX Bug 1 (Roma-Areeiro / paralelização):
+  // O ciclo original processava os comboios sequencialmente com await + 50ms gap.
+  // Em hora de ponta (33 comboios ativos), cada ciclo demorava ~51s — 5× o intervalo
+  // pretendido de 10s. O IS_CYCLE_RUNNING impedia sobreposição, fazendo com que todos
+  // os ticks intermédios fossem ignorados. Resultado: polling efetivo de ~51s,
+  // com deteção da partida em Roma-Areeiro sistematicamente atrasada.
+  //
+  // Solução: processamento em batches paralelos de 6. Com fetches de ~1.5s cada:
+  //   33 comboios ÷ 6 por batch × 1.5s ≈ 9s por ciclo → respeita o intervalo de 10s.
+  const BATCH_SIZE = 6;
+  for (let i = 0; i < activeRichTrains.length; i += BATCH_SIZE) {
+    const batch = activeRichTrains.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map((t) => processTrain(t, t.originDateStr)),
+    );
+    results.forEach((r) => {
+      if (r) newOutput[r["id-comboio"]] = r;
+    });
   }
 
   OUTPUT_CACHE = { ...newOutput, futureTrains: FUTURE_TRAINS_CACHE };
+
+  // --- Limpeza periódica do GHOST_SUPPRESSED ---
+  // Remove entradas de comboios cujo horário de fim já passou há mais de 4 horas,
+  // evitando que o Set cresça indefinidamente ao longo de dias de serviço.
+  const nowMs = now.getTime();
+  for (const ghostId of GHOST_SUPPRESSED) {
+    const entry = RICH_SCHEDULE.find((t) => String(t.id) === ghostId);
+    if (entry) {
+      const endStr =
+        entry.direction === "lisboa"
+          ? entry.roma_areeiro
+          : entry.setubal || entry.coina;
+      if (endStr) {
+        const endDate = parseSmartTime(endStr.substring(0, 5), now);
+        if (endDate && nowMs > endDate.getTime() + 4 * 60 * 60 * 1000) {
+          GHOST_SUPPRESSED.delete(ghostId);
+        }
+      }
+    } else {
+      GHOST_SUPPRESSED.delete(ghostId);
+    }
+  }
 };
 
 // --- TICKER (10 SEGUNDOS) ---
@@ -761,12 +1040,10 @@ const scheduleNextTick = () => {
   const delay = (nextTarget - seconds) * 1000 - ms;
 
   setTimeout(async () => {
-    // passa a async
     if (!IS_CYCLE_RUNNING) {
-      // #Fix #2 - só corre se não estiver já a correr
       IS_CYCLE_RUNNING = true;
       try {
-        await updateCycle(); // proteçao contra processos em simultaneo
+        await updateCycle();
       } finally {
         IS_CYCLE_RUNNING = false;
       }
@@ -788,15 +1065,19 @@ app.get("/stats", (req, res) => {
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.4.2",
+    version: "4.5.0",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
+    ghost: {
+      monitoring: Object.keys(GHOST_TRAINS).length,
+      suppressed: GHOST_SUPPRESSED.size,
+    },
   }),
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.4.2 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.5.0 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();

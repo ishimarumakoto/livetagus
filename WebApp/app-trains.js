@@ -90,10 +90,21 @@ async function fetchFertagusNewAPI() {
           if (destNode && destNode.HoraPrevista) {
             arrTime = destNode.HoraPrevista.substring(0, 5);
           }
+          const isPerturbacao =
+            apiTrain.SituacaoComboio === "Possível Perturbação";
+
           if (isSuppressed) {
             status = "SUPRIMIDO";
             dotStatus = "red";
             pulse = true;
+          } else if (isPerturbacao) {
+            // Stage 1 do sistema ghost trains: comboio ao vivo mas sem
+            // atualização há mais de 5 minutos. Mostra aviso laranja e
+            // mantém o último tempo conhecido sem tentar calcular atraso.
+            status = "Possível Perturbação";
+            dotStatus = "orange";
+            pulse = true;
+            isLive = true;
           } else if (apiTrain) {
             const progStr = originNode.HoraProgramada;
             const prevStr = originNode.HoraPrevista;
@@ -131,7 +142,7 @@ async function fetchFertagusNewAPI() {
               mainTime = progStr.substring(0, 5);
             }
             if (diffMin > 0) {
-              status = `Atraso ${diffMin} min`;
+              status = `Atraso ${diffMin} min (Estimativa) <br /><span style="text-transform: none;" class="text-[10px] text-left text-zinc-500 dark:text-zinc-400 opacity-60">Atrasos podem ser recuperados.</span>`;
               dotStatus = "yellow";
               pulse = true;
               secondaryTime = progStr.substring(0, 5);
@@ -196,6 +207,10 @@ async function fetchFertagusNewAPI() {
               dotStatus = "red";
               pulse = true;
               isSuppressed = true;
+            } else if (/perturbação/i.test(fStatus)) {
+              status = "Possível Perturbação";
+              dotStatus = "orange";
+              pulse = true;
             } else if (/atraso/i.test(fStatus)) {
               const match = fStatus.match(/(\d+)/);
               if (match) {

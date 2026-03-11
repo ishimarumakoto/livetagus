@@ -509,12 +509,12 @@ window.renderList = function (list) {
 
     dotClass += ` shadow-[0_0_8px_${glowColor}]`;
     let pulseStyle =
-      t.dotStatus !== "gray"
-        ? `style="--dot-color-glow: ${glowColor}"`
-        : "";
+      t.dotStatus !== "gray" ? `style="--dot-color-glow: ${glowColor}"` : "";
     if (t.dotStatus !== "gray") dotClass += " dot-ping";
 
-    const opacityClass = isPassed ? "opacity-60 grayscale-[0.5]" : "opacity-100";
+    const opacityClass = isPassed
+      ? "opacity-60 grayscale-[0.5]"
+      : "opacity-100";
     const timeClass = t.isSuppressed
       ? "line-through text-zinc-500 opacity-70"
       : "";
@@ -589,7 +589,7 @@ window.renderList = function (list) {
       <div class="flex items-center justify-between gap-2 mb-1">
         <div class="flex items-center gap-2">
           <div class="w-1.5 h-1.5 rounded-full ${dotClass}" ${pulseStyle}></div>
-          <span class="text-[10px] uppercase tracking-wide font-medium ${statusTextClass}">${t.status}</span>
+          <span class="text-[0.65rem] uppercase tracking-wide font-medium ${statusTextClass}">${t.status}</span>
         </div>
         <button
           data-action="open-details"
