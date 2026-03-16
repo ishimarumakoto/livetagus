@@ -5,6 +5,7 @@ const fetch = require("node-fetch");
 const path = require("path");
 const fs = require("fs");
 const AnalyticsManager = require("./analytics.js");
+const DelayManager = require("./delays.js");
 
 const app = express();
 app.use(cors());
@@ -274,21 +275,9 @@ const subtractMinutes = (timeStr, minutes) => {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
-const getTemporaryDelayAdjustment = (
-  stationName,
-  direction,
-  pragalPassed = false,
-) => {
-  if (direction !== "margem") return 0;
-  const upper = stationName.toUpperCase();
-  // O atraso da ponte aplica-se sempre ao Pragal (o comboio ainda não a cruzou).
-  if (upper === "PRAGAL") return 90;
-  // O atraso aplica-se ao Corroios APENAS enquanto o comboio ainda não passou o Pragal.
-  // Após o comboio cruzar a ponte, o atraso medido já inclui o efeito da ponte,
-  // por isso não se deve somar os 90s para evitar dupla contagem.
-  if (upper === "CORROIOS" && !pragalPassed) return 90;
-  return 0;
-};
+// DEPRECATED: getTemporaryDelayAdjustment foi substituída por DelayManager.getStructuralDelay()
+// em delays.js. A nova função cobre os três troços da Margem Sul com suporte a hora de ponta.
+// Ver: delays.js → getStructuralDelay(stationKey, direction, { pragalPassed, penalvaPassed, now })
 
 // --- FETCHING ---
 
@@ -430,8 +419,24 @@ const checkOfflineTrains = async () => {
         const dateStr = formatDateStr(t.startObj);
         const details = await fetchDetails(String(t.id), dateStr);
         if (details && details.SituacaoComboio) {
-          results[String(t.id)] =
-            details.SituacaoComboio.trim() || "Sem Informação";
+          const situacao = details.SituacaoComboio.trim() || "Sem Informação";
+          const nodes = details.NodesPassagemComboio || [];
+          const hasStarted = nodes.some((n) => n.ComboioPassou === true);
+
+          // FIX Bug Future Trains: quando a IP declara atrasos de rede, os comboios
+          // futuros (que ainda não partiram) podem herdar um SituacaoComboio de
+          // "Em circulação" ou "Atrasado", fazendo a app acreditar que já circulam.
+          // Se nenhum node foi passado E o estado não é terminal, normaliza para
+          // "Sem Informação" para não enganar a app.
+          const isTerminal =
+            situacao.toUpperCase().includes("REALIZADO") ||
+            situacao.toUpperCase().includes("SUPRIMIDO");
+
+          if (!hasStarted && !isTerminal) {
+            results[String(t.id)] = "Sem Informação";
+          } else {
+            results[String(t.id)] = situacao;
+          }
         }
       }),
     );
@@ -657,7 +662,8 @@ const processTrain = async (richInfo, originDateStr) => {
   }
 
   // Determina se o comboio já passou o Pragal (sentido margem).
-  // Usado para evitar dupla contagem do atraso da ponte 25 de abril no Corroios.
+  // Usado para evitar dupla contagem do atraso da ponte 25 de abril no Corroios
+  // e para remover os atrasos do Troço 1 (Foros de Amora, Fogueteiro).
   const pragalNodeId = STATION_IDS_FIXED["PRAGAL"];
   // 'let' (não 'const') porque pode ser atualizado ao vivo dentro do forEach
   let pragalPassed =
@@ -665,6 +671,15 @@ const processTrain = async (richInfo, originDateStr) => {
       (n) =>
         n.NomeEstacao.toUpperCase() === "PRAGAL" && n.ComboioPassou === true,
     ) || !!mem.history[pragalNodeId];
+
+  // Determina se o comboio já passou Penalva (sentido margem).
+  // Usado para remover os atrasos do Troço 2 (Penalva → Setúbal).
+  const penalvaNodeId = STATION_IDS_FIXED["PENALVA"];
+  let penalvaPassed =
+    nodes.some(
+      (n) =>
+        n.NomeEstacao.toUpperCase() === "PENALVA" && n.ComboioPassou === true,
+    ) || !!mem.history[penalvaNodeId];
 
   if (isLive) {
     const lastNode = nodes[nodes.length - 1];
@@ -692,6 +707,11 @@ const processTrain = async (richInfo, originDateStr) => {
           }
         }
         AnalyticsManager.cleanupTrain(trainId);
+        // FIX Bug Future Trains: marca imediatamente como realizado para evitar que a app
+        // continue a ver este comboio como "em circulação/atrasado" durante os 15 min
+        // até ao próximo checkOfflineTrains. Sem esta linha, o FUTURE_TRAINS_CACHE mantém
+        // o status herdado de atrasos de rede declarados pela IP.
+        FUTURE_TRAINS_CACHE[trainId] = "Realizado";
         delete TRAIN_MEMORY[trainId];
         return null;
       }
@@ -787,13 +807,23 @@ const processTrain = async (richInfo, originDateStr) => {
 
       // FIX Analytics Bug 2: se o Pragal acabou de ser passado neste ciclo,
       // atualiza pragalPassed imediatamente para que o Corroios (processado a seguir)
-      // não receba bridgeAdjustment=90 incorretamente na mesma iteração.
+      // não receba bridgeAdjustment incorretamente na mesma iteração.
       if (
         isNewlyPassed &&
         node.NomeEstacao.toUpperCase() === "PRAGAL" &&
         direction === "margem"
       ) {
         pragalPassed = true;
+      }
+
+      // Atualiza penalvaPassed ao vivo: se Penalva acabou de ser passada neste ciclo,
+      // as estações seguintes (Pinhal Novo, etc.) não recebem o atraso do Troço 2.
+      if (
+        isNewlyPassed &&
+        node.NomeEstacao.toUpperCase() === "PENALVA" &&
+        direction === "margem"
+      ) {
+        penalvaPassed = true;
       }
 
       // Analytics: regista chegada real (só na primeira passagem da estação)
@@ -808,26 +838,52 @@ const processTrain = async (richInfo, originDateStr) => {
       }
     }
 
-    let bridgeAdjustment = getTemporaryDelayAdjustment(
-      node.NomeEstacao,
+    // Atraso estrutural calculado pelo DelayManager (bridge + troço 1 + troço 2).
+    // Substitui getTemporaryDelayAdjustment — agora cobre os três troços da Margem
+    // e distingue hora de ponta. Para estações já passadas o valor é irrelevante
+    // (a previsão usa horaRealStr), mas stationKey pode ser null em nós offline sem mapa.
+    const { isWeekendOrHoliday } = getOperationalInfo(nowObj);
+    let bridgeAdjustment = DelayManager.getStructuralDelay(
+      stationKey,
       direction,
-      pragalPassed,
+      {
+        pragalPassed,
+        penalvaPassed,
+        now: nowObj,
+        isWeekendOrHoliday,
+      },
     );
     let horaPrevistaFinal = horaPartidaProgStr; // Inicia com a partida teórica
 
     if (datePartidaProg && !passed) {
-      // Previsão = Hora de Partida Planeada + Atraso Acumulado + Ajuste Ponte
-      horaPrevistaFinal = formatTimeHHMMSS(
-        new Date(
-          datePartidaProg.getTime() + (currentDelay + bridgeAdjustment) * 1000,
-        ),
+      // Previsão = Hora de Partida Planeada + Atraso Acumulado + Ajuste Estrutural
+      const rawPredictedMs =
+        datePartidaProg.getTime() + (currentDelay + bridgeAdjustment) * 1000;
+
+      // Regra de Segurança (FIX Bug Lógico de Tempo):
+      // A previsão apresentada ao utilizador NUNCA pode ser anterior à hora de
+      // PARTIDA programada estática. Usar datePartidaProg (não dateChegadaProg)
+      // como floor porque é o horário que o utilizador vê no display — o dwell time
+      // entre chegada e partida já está embutido nele.
+      // Nota: o clamp nos analytics (linha abaixo) usa dateChegadaProg como floor,
+      // porque lá a métrica é de chegada — os dois floors têm propósitos distintos.
+      const clampedMs = DelayManager.clampToScheduled(
+        rawPredictedMs,
+        datePartidaProg.getTime(),
       );
+      horaPrevistaFinal = formatTimeHHMMSS(new Date(clampedMs));
     }
 
     // Analytics: captura snapshot da previsão para estações ainda não passadas.
     if (!passed && stationKey && dateChegadaProg) {
-      const predictedArrivalMs =
+      // Usa o mesmo clamp da HoraPrevista para que a métrica de precisão seja coerente
+      // com o que é apresentado ao utilizador.
+      const rawArrivalMs =
         dateChegadaProg.getTime() + (currentDelay + bridgeAdjustment) * 1000;
+      const predictedArrivalMs = DelayManager.clampToScheduled(
+        rawArrivalMs,
+        dateChegadaProg.getTime(),
+      );
       AnalyticsManager.tryRecordSnapshot(
         trainId,
         stationKey,
@@ -1065,7 +1121,7 @@ app.get("/stats", (req, res) => {
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.5.2",
+    version: "4.5.4",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
@@ -1077,7 +1133,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.5.2 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.5.4 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();

@@ -50,13 +50,16 @@ const STATION_ORDER_MARGEM = [
 
 /**
  * Devolve as classes CSS de cor conforme a precisão percentual.
- * ≥ 90% → verde | 75–89% → amarelo | < 75% → vermelho
+ * ≥ 85% → verde | 70–85% → amarelo | < 70% → vermelho
  */
 function accColor(pct) {
-  if (pct === null || pct === undefined) return { text: "text-zinc-400", bar: "bar-green", ring: "ring-green" };
-  if (pct >= 90) return { text: "acc-green",  bar: "bar-green",  ring: "ring-green"  };
-  if (pct >= 75) return { text: "acc-yellow", bar: "bar-yellow", ring: "ring-yellow" };
-  return            { text: "acc-red",    bar: "bar-red",    ring: "ring-red"    };
+  if (pct === null || pct === undefined)
+    return { text: "text-zinc-400", bar: "bar-green", ring: "ring-green" };
+  if (pct >= 85)
+    return { text: "acc-green", bar: "bar-green", ring: "ring-green" };
+  if (pct >= 70)
+    return { text: "acc-yellow", bar: "bar-yellow", ring: "ring-yellow" };
+  return { text: "acc-red", bar: "bar-red", ring: "ring-red" };
 }
 
 /**
@@ -68,7 +71,7 @@ function fmt(pct) {
 
 /**
  * Formata um delta em segundos para display amigável.
- * Ex: +12 s | −4 s | — 
+ * Ex: +12 s | −4 s | —
  */
 function fmtDelta(sec) {
   if (sec === null || sec === undefined) return "—";
@@ -117,7 +120,9 @@ function renderOverall(overall) {
   if (barEl) {
     barEl.className = `h-full bar-fill rounded-full ${color.bar}`;
     // Trigger animation: set width after small delay
-    setTimeout(() => { barEl.style.width = (pct ?? 0) + "%"; }, 50);
+    setTimeout(() => {
+      barEl.style.width = (pct ?? 0) + "%";
+    }, 50);
   }
   if (delayEl) {
     delayEl.textContent =
@@ -134,7 +139,10 @@ function renderOverall(overall) {
 
   // Border colour
   content.className = content.className.replace(/border-\S+/g, "");
-  content.classList.add(`border-${color.bar === "bar-green" ? "green" : color.bar === "bar-yellow" ? "yellow" : "red"}-500/20`, "border");
+  content.classList.add(
+    `border-${color.bar === "bar-green" ? "green" : color.bar === "bar-yellow" ? "yellow" : "red"}-500/20`,
+    "border",
+  );
 
   skel.classList.add("hidden");
   content.classList.remove("hidden");
@@ -158,10 +166,10 @@ function renderDirection(dir, stats) {
   const pct = stats.accuracy;
   const color = accColor(pct);
 
-  const pctEl  = document.getElementById(`dir-${dir}-pct`);
-  const barEl  = document.getElementById(`dir-${dir}-bar`);
-  const delEl  = document.getElementById(`dir-${dir}-delay`);
-  const cntEl  = document.getElementById(`dir-${dir}-count`);
+  const pctEl = document.getElementById(`dir-${dir}-pct`);
+  const barEl = document.getElementById(`dir-${dir}-bar`);
+  const delEl = document.getElementById(`dir-${dir}-delay`);
+  const cntEl = document.getElementById(`dir-${dir}-count`);
 
   if (pctEl) {
     pctEl.textContent = fmt(pct);
@@ -169,10 +177,17 @@ function renderDirection(dir, stats) {
   }
   if (barEl) {
     barEl.className = `h-full bar-fill rounded-full ${color.bar}`;
-    setTimeout(() => { barEl.style.width = (pct ?? 0) + "%"; }, 80);
+    setTimeout(() => {
+      barEl.style.width = (pct ?? 0) + "%";
+    }, 80);
   }
-  if (delEl) delEl.textContent = stats.avgDelaySec !== null ? fmtDelta(stats.avgDelaySec) : "—";
-  if (cntEl) cntEl.textContent = stats.count ? `${stats.count.toLocaleString("pt-PT")} amostras` : "—";
+  if (delEl)
+    delEl.textContent =
+      stats.avgDelaySec !== null ? fmtDelta(stats.avgDelaySec) : "—";
+  if (cntEl)
+    cntEl.textContent = stats.count
+      ? `${stats.count.toLocaleString("pt-PT")} amostras`
+      : "—";
 
   skel.classList.add("hidden");
   content.classList.remove("hidden");
@@ -192,7 +207,8 @@ function stationCardHTML(key, data) {
   const noData = !data || count === 0;
   const isLowConf = data && data.lowConfidence;
 
-  const baseCard = "relative rounded-xl border border-black/5 dark:border-white/5 bg-white/90 dark:bg-zinc-800/40 backdrop-blur-sm px-4 py-3 shadow-sm";
+  const baseCard =
+    "relative rounded-xl border border-black/5 dark:border-white/5 bg-white/90 dark:bg-zinc-800/40 backdrop-blur-sm px-4 py-3 shadow-sm";
   const barW = pct !== null ? pct : 0;
 
   // Low confidence badge
@@ -287,14 +303,16 @@ function renderStats(data) {
 
 function showError(msg) {
   const lastRefresh = document.getElementById("last-refresh");
-  if (lastRefresh) lastRefresh.textContent = "Erro ao carregar dados — a tentar novamente...";
+  if (lastRefresh)
+    lastRefresh.textContent = "Erro ao carregar dados — a tentar novamente...";
 
   // Show error inside overall card
   const skel = document.getElementById("overall-skeleton");
   const content = document.getElementById("overall-content");
   if (skel && content) {
     skel.classList.add("hidden");
-    content.className = "rounded-2xl border border-red-500/20 bg-white/90 dark:bg-zinc-800/40 p-6";
+    content.className =
+      "rounded-2xl border border-red-500/20 bg-white/90 dark:bg-zinc-800/40 p-6";
     content.innerHTML = `
       <div class="flex items-center gap-3 text-red-400">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -318,7 +336,11 @@ function startCountdown() {
 
   countdownInterval = setInterval(() => {
     refreshCountdown -= 1;
-    if (el) el.textContent = refreshCountdown > 0 ? `próxima atualização em ${refreshCountdown}s` : "";
+    if (el)
+      el.textContent =
+        refreshCountdown > 0
+          ? `próxima atualização em ${refreshCountdown}s`
+          : "";
     if (refreshCountdown <= 0) clearInterval(countdownInterval);
   }, 1000);
 }
@@ -327,14 +349,18 @@ function startCountdown() {
 
 async function loadStats() {
   try {
-    const res = await fetch(API_STATS + "?t=" + Date.now(), { cache: "no-store" });
+    const res = await fetch(API_STATS + "?t=" + Date.now(), {
+      cache: "no-store",
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     if (data.overall.count === 0) {
       // API online but no measurements yet (server just restarted)
       const lastRefresh = document.getElementById("last-refresh");
-      if (lastRefresh) lastRefresh.textContent = "A recolher dados — sem medições ainda. Volta mais tarde.";
+      if (lastRefresh)
+        lastRefresh.textContent =
+          "A recolher dados — sem medições ainda. Volta mais tarde.";
       // Still render (shows zeros / no-data state)
     }
 
@@ -343,7 +369,6 @@ async function loadStats() {
 
     // Re-init lucide icons that may have been injected into the DOM
     if (window.lucide) lucide.createIcons();
-
   } catch (e) {
     console.error("Stats fetch error:", e);
     showError("Não foi possível carregar as estatísticas. Verifica a ligação.");
@@ -358,5 +383,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setInterval(loadStats, REFRESH_INTERVAL_MS);
 
   // Re-init lucide icons after menu.js runs
-  setTimeout(() => { if (window.lucide) lucide.createIcons(); }, 200);
+  setTimeout(() => {
+    if (window.lucide) lucide.createIcons();
+  }, 200);
 });

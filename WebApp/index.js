@@ -132,7 +132,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const scenarios = [
     {
-      time: "08:32",
+      time: "08:30",
       greet: "Bom dia! Sugestão:",
       dir: "Lisboa",
       train: "short",
