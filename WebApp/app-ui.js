@@ -315,7 +315,7 @@ function openDetails(trainId) {
       const textColor = isPassed
         ? "text-zinc-600"
         : isNext
-          ? "text-zinc-100 font-bold"
+          ? "text-zinc-200 font-bold"
           : "text-zinc-500";
       const timeColor = isPassed
         ? "text-zinc-700"
@@ -410,16 +410,23 @@ function openDetails(trainId) {
             <div class="rounded-xl p-3 border border-black/5 dark:border-white/5 flex flex-col justify-between min-h-[70px] bg-white/50 dark:bg-zinc-800/40">
               <span class="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Ocupação</span>
               <div class="flex items-end gap-1 mt-1">
-                ${t.occupancy !== null ? `<span class="text-2xl font-mono font-bold ${occColorClass} leading-none">${t.occupancy}%</span>` : `<span class="text-sm text-zinc-600 italic">--</span>`}
+                ${t.occupancy !== null ? `<span class="text-2xl font-mono font-bold ${occColorClass} leading-none">${t.occupancy}%</span>` : `<span class="text-[11px] text-zinc-600 italic">Apenas Hora de Ponta</span>`}
               </div>
             </div>
           </div>
-          ${t.occupancy !== null ? `<div class="flex gap-1.5 w-full mt-1">${carsHtml}</div>` : ""}
+          ${t.occupancy !== null ? `<div class="hidden flex gap-1.5 w-full mt-1">${carsHtml}</div>` : ""}
+          <p style="margin-top: -14px" class="text-[9px] text-zinc-500 dark:text-zinc-400 leading-relaxed ${t.occupancy !== null ? "" : "hidden"}">
+            Estimativa de Lotação: Os dados baseiam-se no histórico oficial da Fertagus e <b>não</b> em tempo real. 
+            <a class="underline" target="_blank" href="https://www.fertagus.pt/Fertagus-pt/Viajar/Comunicados-e-Campanhas/Nova-oferta-de-comboios-duplos-e-simples-20-de-janeiro-25" aria-label="Site Oficial da Fertagus, Tabela de Ocupação">
+              Vê a Fonte da Informação
+            </a>
+          </p>
         </div>
+        
       </div>
       <!-- Scrollable Timeline -->
       <div class="flex-grow overflow-y-auto px-6 py-8 relative bg-zinc-50 dark:bg-[#09090b]">
-        <div class="absolute left-[85px] top-0 bottom-0 w-[1px] bg-zinc-300 dark:bg-zinc-800"></div>
+        <!--<div class="absolute left-[85px] top-0 bottom-0 w-[1px] bg-zinc-300 dark:bg-zinc-800"></div>-->
         ${timelineHtml}
         <div class="h-12"></div>
       </div>

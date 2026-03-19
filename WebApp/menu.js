@@ -143,10 +143,10 @@ function injectFooter() {
                     
                     
                     <div class="flex justify-center mt-2">
-                      <a href="./sobre" class="opacity-80 hover:opacity-100 transition-opacity">                     
+                      <a href="./sobre?badge" class="opacity-80 hover:opacity-100 transition-opacity">                     
                         <img
                           src="./imagens/badge_coded_in_europe_portugal_margem_sul.svg"
-                          alt="Badge saying Coded in Europe, Portugal"
+                          alt="Badge saying Coded in Europe, Portugal, Margem Sul"
                           width="140px"
                           height="46.72px"
                         />
