@@ -15,17 +15,17 @@
  *   │ Roma-Areeiro → Entrecampos → Sete Rios → Campolide                   │
  *   │   [Sem ajuste — troço Lisboa antes da ponte]                         │
  *   ├──────────────────────────────────────────────────────────────────────┤
- *   │ Pragal + Corroios + Foros → BRIDGE DELAY   (+2:30 min / +3 ponta)    │
+ *   │ Pragal + Corroios + Foros → BRIDGE DELAY   (+2:30 min / +3:15 ponta) │
  *   │   [Remoção: após comboio passar no Pragal]                           │
  *   ├──────────────────────────────────────────────────────────────────────┤
- *   │ Fogueteiro → TROÇO 1  (+1:30 min / +2 ponta)                         │
+ *   │ Fogueteiro → TROÇO 1  (+1:45 min / +2:30 ponta)                      │
  *   │   [Remoção: após comboio passar no Pragal]                           │
  *   ├──────────────────────────────────────────────────────────────────────┤
  *   │ Coina                                                                │
  *   │   [Sem ajuste — ponto de interseção neutro]                          │
  *   ├──────────────────────────────────────────────────────────────────────┤
  *   │ Penalva → Pinhal Novo → Venda do Alcaide → Palmela → Setúbal         │
- *   │   → TROÇO 2  (+2:30 min / +2:45 ponta)                               │
+ *   │   → TROÇO 2  (+2:45 min / +3 ponta)                                  │
  *   │   [Remoção: após comboio passar em Penalva]                          │
  *   └──────────────────────────────────────────────────────────────────────┘
  *
@@ -59,15 +59,15 @@
 
 /** Atraso de Ponte: Pragal + Corroios (sentido Margem). */
 const BRIDGE_DELAY_BASE_S = 2 * 60 + 30; // 2 min 30 seg
-const BRIDGE_DELAY_PEAK_S = 3 * 60; // 3 min 00 seg
+const BRIDGE_DELAY_PEAK_S = 3 * 60 + 15; // 3 min 15 seg
 
 /** Troço 1 Pós-Pragal: Fogueteiro (sentido Margem). */
-const TROCO1_DELAY_BASE_S = 1 * 60 + 30; // 1 min 30 seg
-const TROCO1_DELAY_PEAK_S = 2 * 60; // 2 min 00 seg
+const TROCO1_DELAY_BASE_S = 1 * 60 + 45; // 1 min 45 seg
+const TROCO1_DELAY_PEAK_S = 2 * 60 + 30; // 2 min 30 seg
 
 /** Troço 2 Pós-Coina: Penalva e restantes até Setúbal (sentido Margem). */
-const TROCO2_DELAY_BASE_S = 2 * 60 + 30; // 2 min 30 seg
-const TROCO2_DELAY_PEAK_S = 2 * 60 + 45; // 2 min 45 seg
+const TROCO2_DELAY_BASE_S = 2 * 60 + 45; // 2 min 45 seg
+const TROCO2_DELAY_PEAK_S = 3 * 60; // 3 min 00 seg
 
 // ─── ESTAÇÕES POR GRUPO ───────────────────────────────────────────────────────
 
