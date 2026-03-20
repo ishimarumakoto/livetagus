@@ -64,6 +64,11 @@
     # Permissions Policy (Bloqueia uso não autorizado de câmara/mic/localização pelo browser)
     Permissions-Policy = "camera=(), microphone=(), payment=()"
 
+  # Permitir o acesso às imagens para casos como email e opengraph
+  for = "/imagens/*"
+  [headers.values]
+    Cross-Origin-Resource-Policy = "cross-origin"
+
 # Cache eficiente para imagens e fontes
 [[headers]]
   for = "*.{png,jpg,jpeg,gif,svg,woff,woff2}"
