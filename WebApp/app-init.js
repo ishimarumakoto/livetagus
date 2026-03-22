@@ -29,11 +29,9 @@ async function init() {
 
   const savedOrg = localStorage.getItem("ft_org");
   const savedDest = localStorage.getItem("ft_dst");
-  const savedTab = localStorage.getItem("ft_tab");
 
   if (savedOrg) fertagusOrigin = savedOrg;
   if (savedDest) fertagusDest = savedDest;
-  if (savedTab) activeTab = savedTab;
 
   // Aguarda que o menu.js construa o DOM do menu (pequeno timeout de segurança)
   setTimeout(injectCustomMenuElements, 100);
@@ -55,13 +53,15 @@ async function init() {
     FERIADOS_DB = {};
   }
 
-  const nowH = new Date().getHours();
+  // Determina o tab inicial:
+  // 1. Se o Horário Inteligente estiver configurado, usa-o para detetar o sentido.
+  // 2. Se a deteção não encontrar uma janela ativa, mantém o último tab guardado.
+  // 3. Caso contrário, usa "lisboa" como default.
   let targetTab = "lisboa";
-  if (enableSmartSchedule) {
-    const morningPref = localStorage.getItem("pref_morning") || "lisboa";
-    const afternoonPref = localStorage.getItem("pref_afternoon") || "margem";
-    if (nowH >= 5 && nowH < 13) targetTab = morningPref;
-    else if (nowH >= 13 || nowH < 2) targetTab = afternoonPref;
+  if (typeof _isSmartConfigured === "function" && _isSmartConfigured()) {
+    const detected = _detectSmartTab();
+    // Deteção bem-sucedida → usa o sentido correto; fora de janelas → mantém o último tab
+    targetTab = detected || localStorage.getItem("ft_tab") || "lisboa";
   } else {
     const savedTab = localStorage.getItem("ft_tab");
     if (savedTab) targetTab = savedTab;
@@ -174,10 +174,7 @@ document.body.addEventListener("click", function (e) {
   }
 });
 
-// Delegação para os selects dos elementos do template de definições
-// que são injetados dinamicamente no menu. Os listeners específicos
-// são adicionados em injectCustomMenuElements (app-settings.js),
-// mas os selects públicos (smart-morning, etc.) ficam aqui como fallback.
+// Delegação para os selects dos elementos principais da app.
 document.body.addEventListener("change", function (e) {
   const id = e.target.id;
   if (id === "sel-origin") {
@@ -185,6 +182,4 @@ document.body.addEventListener("change", function (e) {
   } else if (id === "sel-dest") {
     handleDestChange();
   }
-  // Nota: os selects do template (set-lisboa-org, smart-morning, etc.)
-  // têm os seus listeners adicionados diretamente em injectCustomMenuElements.
 });

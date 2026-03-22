@@ -94,6 +94,7 @@ function injectFooter() {
 
   footerContainer.innerHTML = `
         <footer class="relative z-10 px-6 py-12 bg-zinc-50/50 dark:bg-zinc-900/20 backdrop-blur-sm border-t border-zinc-200 dark:border-white/5 mt-auto">
+          <!-- style="border-image: linear-gradient(to right, #078d70, #26ceaa, #98e8c1, #ffffff, #7bade2, #5049cc, #3d1a78) 1;" -->
             <div class="max-w-4xl mx-auto flex flex-col md:flex-row justify-between gap-10">
                 
                 <div class="space-y-4 md:w-1/2">
@@ -178,7 +179,7 @@ function initShareButton() {
 
   const SHARE_URL = "https://livetagus.pt";
   const SHARE_TEXT =
-    "Monitoriza os comboios da Fertagus em tempo real — sem anúncios e gratuita.";
+    "Olha a nova aplicação web para ver a fertagus em tempo real! Gratuita e sem anúncios!";
 
   // Criar pill de notificação (uma só vez, reutilizado)
   let pill = document.getElementById("share-pill-notification");
@@ -488,3 +489,13 @@ async function updateAppVersion() {
   if (footerVersionEl) footerVersionEl.textContent = version;
   if (roadmapVersionEl) roadmapVersionEl.textContent = `Versão: ${version}`; // ROadmap
 }
+
+// 100% privacy-first analytics
+// Injetar Simple Analytics dinamicamente via Proxy
+const saScript = document.createElement("script");
+saScript.src = "/api/sa.js";
+saScript.async = true;
+saScript.defer = true;
+saScript.setAttribute("data-collect-dnt", "true");
+saScript.setAttribute("data-api", "/api/sa-events");
+document.head.appendChild(saScript);

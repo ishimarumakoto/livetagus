@@ -30,6 +30,20 @@
   status = 403
   force = true
 
+# 5. Permitir acesso da simple analytics (Bypass CSP)
+[[redirects]]
+  from = "/api/sa.js"
+  to = "https://scripts.simpleanalyticscdn.com/latest.js"
+  status = 200
+  force = true
+
+# 6. Permitir acesso da simple analytics (Bypass CSP)
+[[redirects]]
+  from = "/api/sa-events/*"
+  to = "https://queue.simpleanalyticscdn.com/*"
+  status = 200
+  force = true
+
 # Regra 404
 [[redirects]]
   from = "/*"

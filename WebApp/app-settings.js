@@ -34,21 +34,9 @@ window.applyTheme = function () {
   }
 
   document.querySelectorAll(".theme-btn").forEach((btn) => {
-    btn.classList.remove(
-      "font-bold",
-      "text-black",
-      "dark:text-white",
-      "bg-black/5",
-      "dark:bg-white/10",
-    );
+    btn.classList.remove("font-bold", "text-black", "dark:text-white");
     if (btn.dataset.mode === currentTheme) {
-      btn.classList.add(
-        "font-bold",
-        "text-black",
-        "dark:text-white",
-        "bg-black/5",
-        "dark:bg-white/10",
-      );
+      btn.classList.add("font-bold", "text-black", "dark:text-white");
     }
   });
 
@@ -81,19 +69,17 @@ window.loadSettings = function () {
   const savedTheme = localStorage.getItem("theme");
   setTheme(savedTheme || "system");
 
-  enableRegularStations = localStorage.getItem("enable_regular") === "true";
-  enableSmartSchedule = localStorage.getItem("enable_smart") === "true";
+  // Compatibilidade retroativa: migrar chaves antigas se existirem
+  _migrateOldSettings();
 
-  const savedSync = localStorage.getItem("pref_sync_stations");
-  syncStations = savedSync === "false" ? false : true;
-
-  updateSettingsToggles();
+  enableSmartSchedule = _isSmartConfigured();
+  enableRegularStations = enableSmartSchedule;
 };
 
 window.loadStationPrefs = function (direction) {
-  if (!enableRegularStations) return;
-  const savedOrg = localStorage.getItem(`pref_${direction}_org`);
-  const savedDest = localStorage.getItem(`pref_${direction}_dest`);
+  if (!_isSmartConfigured()) return;
+  const savedOrg = localStorage.getItem(`smart_${direction}_org`);
+  const savedDest = localStorage.getItem(`smart_${direction}_dest`);
 
   if (savedOrg && FERTAGUS_STATIONS.find((s) => s.key === savedOrg))
     fertagusOrigin = savedOrg;
@@ -101,151 +87,825 @@ window.loadStationPrefs = function (direction) {
     fertagusDest = savedDest;
 };
 
-window.saveStationPrefs = function () {
-  if (!enableRegularStations) return;
-  localStorage.setItem(`pref_${activeTab}_org`, fertagusOrigin);
-  localStorage.setItem(`pref_${activeTab}_dest`, fertagusDest);
+// Compatibilidade: não faz nada no novo sistema (o wizard gere as estações)
+window.saveStationPrefs = function () {};
 
-  if (syncStations) {
-    const otherTab = activeTab === "lisboa" ? "margem" : "lisboa";
-    localStorage.setItem(`pref_${otherTab}_org`, fertagusDest);
-    localStorage.setItem(`pref_${otherTab}_dest`, fertagusOrigin);
-  }
+function _migrateOldSettings() {
+  // Se existiam configurações do sistema antigo mas não do novo, ignora-as silenciosamente.
+  // As chaves antigas ficam no localStorage até serem limpas manualmente.
+}
+
+// ─── HORÁRIO INTELIGENTE — ESTADO DO WIZARD ───────────────────────────────────
+
+let _wizActive = false; // wizard está a ser exibido
+let _wizEditing = false; // a editar configuração existente
+let _wizStep = 1; // 1, 2 ou 3
+
+// Escolhas do utilizador (em memória durante o wizard)
+let _wizSame = true; // mesmas estações invertidas?
+let _wizLOrg = null; // Lisboa: partida
+let _wizLDest = null; // Lisboa: destino
+let _wizMOrg = null; // Margem: partida
+let _wizMDest = null; // Margem: destino
+let _wizLFrom = "07:00"; // Lisboa: a partir de
+let _wizLTo = ""; // Lisboa: até (vazio = sem limite)
+let _wizMFrom = "16:00"; // Margem: a partir de
+let _wizMTo = ""; // Margem: até (vazio = sem limite)
+
+// ─── FUNÇÕES PÚBLICAS ─────────────────────────────────────────────────────────
+
+/**
+ * Verifica se o Horário Inteligente está completamente configurado.
+ * Exposta globalmente para uso em app-init.js.
+ */
+window._isSmartConfigured = function () {
+  return (
+    localStorage.getItem("smart_enabled") === "true" &&
+    !!localStorage.getItem("smart_lisboa_org") &&
+    !!localStorage.getItem("smart_lisboa_dest") &&
+    !!localStorage.getItem("smart_margem_org") &&
+    !!localStorage.getItem("smart_margem_dest") &&
+    !!localStorage.getItem("smart_lisboa_from") &&
+    !!localStorage.getItem("smart_margem_from")
+  );
 };
 
-window.populateSettingsUI = function () {
-  const optsLisboa = FERTAGUS_STATIONS.map(
-    (s) => `<option value="${s.key}">${s.name}</option>`,
-  ).join("");
+/**
+ * Deteta qual o sentido ativo com base na hora atual e nas janelas configuradas.
+ * Retorna "lisboa", "margem" ou null (fora de qualquer janela).
+ * As horas antes das 05:00 são normalizadas para +24h (dia operacional 05:00–02:00).
+ */
+window._detectSmartTab = function () {
+  if (!_isSmartConfigured()) return null;
 
-  const ids = [
-    "set-lisboa-org",
-    "set-lisboa-dest",
-    "set-margem-org",
-    "set-margem-dest",
-  ];
-  ids.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = optsLisboa;
+  const now = new Date();
+  let nowMins = now.getHours() * 60 + now.getMinutes();
+  // Horas de madrugada (00:00–04:59) pertencem ao dia operacional anterior
+  if (nowMins < 5 * 60) nowMins += 24 * 60;
+
+  function parseMins(str) {
+    if (!str) return null;
+    const [h, m] = str.split(":").map(Number);
+    let mins = h * 60 + (m || 0);
+    if (mins < 5 * 60) mins += 24 * 60;
+    return mins;
+  }
+
+  function inWindow(fromStr, toStr) {
+    const from = parseMins(fromStr);
+    if (from === null) return false;
+    if (!toStr) return nowMins >= from; // apenas "a partir de"
+    const to = parseMins(toStr);
+    if (to === null) return nowMins >= from;
+    return nowMins >= from && nowMins < to;
+  }
+
+  const lFrom = localStorage.getItem("smart_lisboa_from") || "";
+  const lTo = localStorage.getItem("smart_lisboa_to") || "";
+  const mFrom = localStorage.getItem("smart_margem_from") || "";
+  const mTo = localStorage.getItem("smart_margem_to") || "";
+
+  // Lisboa tem prioridade se ambas as janelas se sobrepuserem
+  if (inWindow(lFrom, lTo)) return "lisboa";
+  if (inWindow(mFrom, mTo)) return "margem";
+  return null;
+};
+
+// ─── HELPERS INTERNOS ─────────────────────────────────────────────────────────
+
+/** Slots de tempo: 05:00 às 02:00 (inclusive), de 30 em 30 minutos. */
+function _timeSlots() {
+  const slots = [];
+  for (let h = 5; h <= 23; h++) {
+    slots.push(`${String(h).padStart(2, "0")}:00`);
+    slots.push(`${String(h).padStart(2, "0")}:30`);
+  }
+  for (let h = 0; h <= 2; h++) {
+    slots.push(`${String(h).padStart(2, "0")}:00`);
+    if (h < 2) slots.push(`${String(h).padStart(2, "0")}:30`);
+  }
+  return slots;
+}
+
+/** Gera as <option> de um select de hora. */
+function _timeSelectOpts(selected, allowEmpty, emptyLabel) {
+  let html = allowEmpty ? `<option value="">${emptyLabel || "—"}</option>` : "";
+  _timeSlots().forEach((s) => {
+    const sel = s === selected ? " selected" : "";
+    html += `<option value="${s}"${sel}>${s}</option>`;
   });
+  return html;
+}
 
-  const setVal = (id, key, def) => {
-    const el = document.getElementById(id);
-    if (el) el.value = localStorage.getItem(key) || def;
+/** Opções de origem para sentido Lisboa (índice < destino). */
+function _lisbOrgOpts(selected) {
+  return FERTAGUS_STATIONS.slice(0, -1)
+    .map(
+      (s) =>
+        `<option value="${s.key}"${s.key === selected ? " selected" : ""}>${s.name}</option>`,
+    )
+    .join("");
+}
+
+/** Opções de destino para sentido Lisboa dado a origem. */
+function _lisbDestOpts(orgKey, selected) {
+  const orgIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === orgKey);
+  if (orgIdx < 0) return "";
+  return FERTAGUS_STATIONS.slice(orgIdx + 1)
+    .map(
+      (s) =>
+        `<option value="${s.key}"${s.key === selected ? " selected" : ""}>${s.name}</option>`,
+    )
+    .join("");
+}
+
+/** Opções de origem para sentido Margem (índice > destino), exibidas invertidas. */
+function _margOrgOpts(selected) {
+  return [...FERTAGUS_STATIONS]
+    .slice(1)
+    .reverse()
+    .map(
+      (s) =>
+        `<option value="${s.key}"${s.key === selected ? " selected" : ""}>${s.name}</option>`,
+    )
+    .join("");
+}
+
+/** Opções de destino para sentido Margem dado a origem, exibidas invertidas. */
+function _margDestOpts(orgKey, selected) {
+  const orgIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === orgKey);
+  if (orgIdx < 0) return "";
+  return [...FERTAGUS_STATIONS]
+    .slice(0, orgIdx)
+    .reverse()
+    .map(
+      (s) =>
+        `<option value="${s.key}"${s.key === selected ? " selected" : ""}>${s.name}</option>`,
+    )
+    .join("");
+}
+
+function _stationName(key) {
+  const s = FERTAGUS_STATIONS.find((s) => s.key === key);
+  return s ? s.name : key || "—";
+}
+
+function _formatTimeLabel(from, to) {
+  if (!from) return "Não definido";
+  if (!to) return `A partir das ${from}`;
+  return `${from} – ${to}`;
+}
+
+/** Classe base dos <select> dentro do wizard/definições. */
+const _SC =
+  "bg-white/50 dark:bg-black/30 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs w-full text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500/40";
+
+// ─── CONSTRUÇÃO DO HTML ───────────────────────────────────────────────────────
+
+function _buildInfoHTML() {
+  return `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-bold tracking-widest text-zinc-500 uppercase">Horário Inteligente</span>
+        <span class="text-[9px] bg-blue-500/10 text-blue-500 border border-blue-500/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Novo</span>
+      </div>
+
+      <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 border border-black/5 dark:border-white/5 space-y-3">
+        <div class="flex gap-3 items-start">
+          <div class="shrink-0 w-9 h-9 rounded-xl bg-blue-500/10 dark:bg-blue-500/15 flex items-center justify-center">
+            <i data-lucide="zap" class="w-4 h-4 text-blue-500"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mb-1 leading-snug">A app abre no sentido certo, à hora certa.</p>
+            <p class="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">Configura as tuas estações e horários habituais e a app muda automaticamente de sentido sem teres de tocar em nada.</p>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5 pt-1 border-t border-black/5 dark:border-white/10">
+          <div class="flex items-center gap-2 text-[10px] text-zinc-400">
+            <i data-lucide="arrow-right-left" class="w-3 h-3 shrink-0 text-zinc-400"></i>
+            <span>Manhã sentido Lisboa, tarde sentido Margem — ou o contrário.</span>
+          </div>
+          <div class="flex items-center gap-2 text-[10px] text-zinc-400">
+            <i data-lucide="lock" class="w-3 h-3 shrink-0 text-zinc-400"></i>
+            <span>Os dados ficam apenas no teu dispositivo. Nunca os partilhamos.</span>
+          </div>
+        </div>
+      </div>
+
+      <button id="smart-start-btn"
+        class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-sm font-bold transition-all shadow-sm shadow-blue-500/20 flex items-center justify-center gap-2">
+        <i data-lucide="settings-2" class="w-4 h-4"></i>
+        Configurar Horário Inteligente
+      </button>
+    </div>`;
+}
+
+function _buildWizardHTML() {
+  const stepTitles = ["O teu percurso", "As tuas estações", "Os teus horários"];
+  const title = stepTitles[_wizStep - 1];
+  const pct = Math.round((_wizStep / 3) * 100);
+
+  let stepContent = "";
+  if (_wizStep === 1) stepContent = _buildStep1HTML();
+  else if (_wizStep === 2) stepContent = _buildStep2HTML();
+  else stepContent = _buildStep3HTML();
+
+  const backLabel = _wizStep === 1 ? "Cancelar" : "Voltar";
+  const nextBtn =
+    _wizStep < 3
+      ? `<button id="smart-next-btn" class="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-sm font-bold transition-all shadow-sm shadow-blue-500/15">Continuar</button>`
+      : `<button id="smart-confirm-btn" class="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-sm font-bold transition-all shadow-sm shadow-blue-500/15 flex items-center justify-center gap-1.5"><i data-lucide="check" class="w-3.5 h-3.5"></i>Confirmar e Aplicar</button>`;
+
+  return `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-bold tracking-widest text-zinc-500 uppercase">Horário Inteligente</span>
+        <span class="text-[9px] text-zinc-400 font-mono">Passo ${_wizStep} de 3</span>
+      </div>
+
+      <div class="h-1 bg-zinc-200 dark:bg-zinc-700/60 rounded-full overflow-hidden">
+        <div class="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out" style="width:${pct}%"></div>
+      </div>
+
+      <p class="text-sm font-bold text-zinc-900 dark:text-zinc-100">${title}</p>
+
+      ${stepContent}
+
+      <div class="flex gap-2 pt-1">
+        <button id="smart-back-btn"
+          class="flex-none py-2.5 px-4 rounded-xl border border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-400 text-sm font-medium active:scale-[0.98] transition-all">
+          ${backLabel}
+        </button>
+        ${nextBtn}
+      </div>
+    </div>`;
+}
+
+function _buildStep1HTML() {
+  const yesActive = _wizSame;
+  const noActive = !_wizSame;
+
+  return `
+    <div class="space-y-3">
+      <p class="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+        As estações de partida e destino são as mesmas nos dois sentidos (apenas invertidas)?
+        <br><span class="text-zinc-400 dark:text-zinc-500">Ex: Corroios → Roma-Areeiro / Roma-Areeiro → Corroios</span>
+      </p>
+
+      <button id="wiz-same-yes"
+        class="w-full p-3.5 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${yesActive ? "border-blue-500 bg-blue-500/8 dark:bg-blue-500/10" : "border-zinc-200 dark:border-white/10 hover:border-zinc-300 dark:hover:border-white/20"}">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg ${yesActive ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-700"} flex items-center justify-center shrink-0 transition-colors">
+            <i data-lucide="repeat-2" class="w-4 h-4 ${yesActive ? "text-white" : "text-zinc-400"}"></i>
+          </div>
+          <div>
+            <p class="text-sm font-bold text-zinc-900 dark:text-zinc-100">Sim, as mesmas (invertidas)</p>
+            <p class="text-[10px] text-zinc-500 mt-0.5">Uso as mesmas estações em ambas as direções.</p>
+          </div>
+          ${yesActive ? '<i data-lucide="check-circle-2" class="w-4 h-4 text-blue-500 ml-auto shrink-0"></i>' : ""}
+        </div>
+      </button>
+
+      <button id="wiz-same-no"
+        class="w-full p-3.5 rounded-xl border-2 text-left transition-all active:scale-[0.98] ${noActive ? "border-blue-500 bg-blue-500/8 dark:bg-blue-500/10" : "border-zinc-200 dark:border-white/10 hover:border-zinc-300 dark:hover:border-white/20"}">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg ${noActive ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-700"} flex items-center justify-center shrink-0 transition-colors">
+            <i data-lucide="shuffle" class="w-4 h-4 ${noActive ? "text-white" : "text-zinc-400"}"></i>
+          </div>
+          <div>
+            <p class="text-sm font-bold text-zinc-900 dark:text-zinc-100">Não, são diferentes</p>
+            <p class="text-[10px] text-zinc-500 mt-0.5">Uso estações distintas consoante o sentido.</p>
+          </div>
+          ${noActive ? '<i data-lucide="check-circle-2" class="w-4 h-4 text-blue-500 ml-auto shrink-0"></i>' : ""}
+        </div>
+      </button>
+    </div>`;
+}
+
+function _buildStep2HTML() {
+  // Garante valores válidos antes de renderizar
+  if (!_wizLOrg) _wizLOrg = "corroios";
+  const orgIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizLOrg);
+  const destIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizLDest);
+  if (destIdx <= orgIdx || !_wizLDest) {
+    _wizLDest = FERTAGUS_STATIONS[orgIdx + 1]?.key || "roma_areeiro";
+  }
+
+  if (_wizSame) {
+    // Margem = inverso automático
+    _wizMOrg = _wizLDest;
+    _wizMDest = _wizLOrg;
+  } else {
+    if (!_wizMOrg) _wizMOrg = "roma_areeiro";
+    const mOrgIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizMOrg);
+    const mDestIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizMDest);
+    if (mDestIdx >= mOrgIdx || !_wizMDest) {
+      _wizMDest = FERTAGUS_STATIONS[mOrgIdx - 1]?.key || "corroios";
+    }
+  }
+
+  const lisbSection = `
+    <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-3 border border-black/5 dark:border-white/5">
+      <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+        Sentido Lisboa
+      </p>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Partida</label>
+          <select id="wiz-lisb-org" class="${_SC}">
+            ${_lisbOrgOpts(_wizLOrg)}
+          </select>
+        </div>
+        <div>
+          <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Destino</label>
+          <select id="wiz-lisb-dest" class="${_SC}">
+            ${_lisbDestOpts(_wizLOrg, _wizLDest)}
+          </select>
+        </div>
+      </div>
+    </div>`;
+
+  let margSection;
+  if (_wizSame) {
+    // Prévia apenas — não editável
+    margSection = `
+      <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-3 border border-black/5 dark:border-white/5 opacity-60">
+        <div class="flex items-center justify-between">
+          <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-zinc-400 inline-block"></span>
+            Sentido Margem
+          </p>
+          <span class="text-[9px] text-zinc-400">automático</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Partida</label>
+            <div class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs text-zinc-700 dark:text-zinc-300 truncate">
+              ${_stationName(_wizMOrg)}
+            </div>
+          </div>
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Destino</label>
+            <div class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs text-zinc-700 dark:text-zinc-300 truncate">
+              ${_stationName(_wizMDest)}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  } else {
+    margSection = `
+      <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-3 border border-black/5 dark:border-white/5">
+        <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-zinc-400 inline-block"></span>
+          Sentido Margem
+        </p>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Partida</label>
+            <select id="wiz-marg-org" class="${_SC}">
+              ${_margOrgOpts(_wizMOrg)}
+            </select>
+          </div>
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Destino</label>
+            <select id="wiz-marg-dest" class="${_SC}">
+              ${_margDestOpts(_wizMOrg, _wizMDest)}
+            </select>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  const hint = _wizSame
+    ? `<p class="text-[10px] text-zinc-400 flex items-start gap-1.5"><i data-lucide="info" class="w-3 h-3 shrink-0 mt-0.5"></i>O sentido Margem é configurado automaticamente como o inverso do sentido Lisboa.</p>`
+    : `<p class="text-[10px] text-zinc-400 flex items-start gap-1.5"><i data-lucide="info" class="w-3 h-3 shrink-0 mt-0.5"></i>Só são apresentadas viagens válidas para cada sentido.</p>`;
+
+  return `
+    <div class="space-y-3">
+      ${hint}
+      ${lisbSection}
+      ${margSection}
+    </div>`;
+}
+
+function _buildStep3HTML() {
+  const lOrg = _stationName(_wizLOrg);
+  const lDest = _stationName(_wizLDest);
+  const mOrg = _stationName(_wizMOrg);
+  const mDest = _stationName(_wizMDest);
+
+  return `
+    <div class="space-y-3">
+      <p class="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+        Define quando a app deve mostrar cada sentido.
+        O campo <strong class="text-zinc-600 dark:text-zinc-300">Até às</strong> é opcional — podes deixar apenas "a partir de".
+      </p>
+
+      <!-- Lisboa -->
+      <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-3 border border-black/5 dark:border-white/5">
+        <div class="flex items-center justify-between">
+          <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+            Sentido Lisboa
+          </p>
+          <span class="text-[9px] text-zinc-400 font-medium truncate max-w-[110px]">${lOrg} → ${lDest}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">A partir das</label>
+            <select id="wiz-lisb-from" class="${_SC}">
+              ${_timeSelectOpts(_wizLFrom, false)}
+            </select>
+          </div>
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Até às (opcional)</label>
+            <select id="wiz-lisb-to" class="${_SC}">
+              ${_timeSelectOpts(_wizLTo, true, "Sem limite")}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Margem -->
+      <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-3 border border-black/5 dark:border-white/5">
+        <div class="flex items-center justify-between">
+          <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-zinc-400 inline-block"></span>
+            Sentido Margem
+          </p>
+          <span class="text-[9px] text-zinc-400 font-medium truncate max-w-[110px]">${mOrg} → ${mDest}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">A partir das</label>
+            <select id="wiz-marg-from" class="${_SC}">
+              ${_timeSelectOpts(_wizMFrom, false)}
+            </select>
+          </div>
+          <div>
+            <label class="text-[9px] text-zinc-400 uppercase tracking-wider mb-1 block">Até às (opcional)</label>
+            <select id="wiz-marg-to" class="${_SC}">
+              ${_timeSelectOpts(_wizMTo, true, "Sem limite")}
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _buildSummaryHTML() {
+  const lOrg = localStorage.getItem("smart_lisboa_org") || "";
+  const lDest = localStorage.getItem("smart_lisboa_dest") || "";
+  const mOrg = localStorage.getItem("smart_margem_org") || "";
+  const mDest = localStorage.getItem("smart_margem_dest") || "";
+  const lFrom = localStorage.getItem("smart_lisboa_from") || "";
+  const lTo = localStorage.getItem("smart_lisboa_to") || "";
+  const mFrom = localStorage.getItem("smart_margem_from") || "";
+  const mTo = localStorage.getItem("smart_margem_to") || "";
+
+  const activeDir = _detectSmartTab(); // null | "lisboa" | "margem"
+
+  const lActive = activeDir === "lisboa";
+  const mActive = activeDir === "margem";
+
+  const lCard = `
+    <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 border ${lActive ? "border-blue-500/40 ring-1 ring-blue-500/20" : "border-black/5 dark:border-white/5"} transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+          Sentido Lisboa
+        </p>
+        ${lActive ? '<span class="text-[9px] bg-blue-500/10 text-blue-500 border border-blue-500/25 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1"><span class="w-1 h-1 rounded-full bg-blue-500 inline-block animate-pulse"></span>Agora</span>' : ""}
+      </div>
+      <p class="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">${_stationName(lOrg)} → ${_stationName(lDest)}</p>
+      <p class="text-[11px] text-zinc-500 mt-0.5 flex items-center gap-1">
+        <i data-lucide="clock" class="w-3 h-3"></i>
+        ${_formatTimeLabel(lFrom, lTo)}
+      </p>
+    </div>`;
+
+  const mCard = `
+    <div class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 border ${mActive ? "border-zinc-400/40 ring-1 ring-zinc-400/20" : "border-black/5 dark:border-white/5"} transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[9px] uppercase font-bold tracking-wider text-zinc-500 flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-zinc-400 inline-block"></span>
+          Sentido Margem
+        </p>
+        ${mActive ? '<span class="text-[9px] bg-zinc-200 dark:bg-white/5 text-zinc-600 dark:text-zinc-400 border border-black/10 dark:border-white/15 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex items-center gap-1"><span class="w-1 h-1 rounded-full bg-zinc-500 inline-block animate-pulse"></span>Agora</span>' : ""}
+      </div>
+      <p class="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">${_stationName(mOrg)} → ${_stationName(mDest)}</p>
+      <p class="text-[11px] text-zinc-500 mt-0.5 flex items-center gap-1">
+        <i data-lucide="clock" class="w-3 h-3"></i>
+        ${_formatTimeLabel(mFrom, mTo)}
+      </p>
+    </div>`;
+
+  return `
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-bold tracking-widest text-zinc-500 uppercase">Horário Inteligente</span>
+        <div class="flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse"></span>
+          <span class="text-[9px] text-green-500 font-bold uppercase tracking-wider">Ativo</span>
+        </div>
+      </div>
+
+      ${lCard}
+      ${mCard}
+
+      <div class="flex gap-2 pt-1">
+        <button id="smart-edit-btn"
+          class="flex-1 py-2.5 rounded-xl border border-zinc-200 dark:border-white/10 text-zinc-600 dark:text-zinc-400 text-sm font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-1.5">
+          <i data-lucide="pencil" class="w-3.5 h-3.5"></i>Editar
+        </button>
+        <button id="smart-disable-btn"
+          class="py-2.5 px-4 rounded-xl border border-red-500/20 text-red-500 dark:text-red-400 text-sm font-medium active:scale-[0.98] transition-all flex items-center gap-1.5">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>Desativar
+        </button>
+      </div>
+    </div>`;
+}
+
+// ─── RENDER PRINCIPAL ─────────────────────────────────────────────────────────
+
+function renderSmartSection(container) {
+  if (!container) return;
+
+  if (_wizActive) {
+    container.innerHTML = _buildWizardHTML();
+  } else if (_isSmartConfigured()) {
+    container.innerHTML = _buildSummaryHTML();
+  } else {
+    container.innerHTML = _buildInfoHTML();
+  }
+
+  _attachSmartListeners(container);
+  if (window.lucide) lucide.createIcons();
+}
+
+// ─── EVENT LISTENERS DO WIZARD ────────────────────────────────────────────────
+
+function _attachSmartListeners(container) {
+  const q = (id) => container.querySelector(`#${id}`);
+  const on = (id, evt, fn) => {
+    const el = q(id);
+    if (el) el.addEventListener(evt, fn);
   };
 
-  setVal("set-lisboa-org", "pref_lisboa_org", "setubal");
-  setVal("set-lisboa-dest", "pref_lisboa_dest", "roma_areeiro");
-  setVal("set-margem-org", "pref_margem_org", "roma_areeiro");
-  setVal("set-margem-dest", "pref_margem_dest", "setubal");
+  // ── Estado: Info ──────────────────────────────────────────────────────────
 
-  setVal("smart-morning", "pref_morning", "lisboa");
-  setVal("smart-afternoon", "pref_afternoon", "margem");
+  on("smart-start-btn", "click", () => {
+    // Inicializa o wizard com os valores atuais ou defaults
+    const curDir = calculateDirection(fertagusOrigin, fertagusDest);
+    if (curDir === "lisboa") {
+      _wizLOrg = fertagusOrigin;
+      _wizLDest = fertagusDest;
+      _wizMOrg = fertagusDest;
+      _wizMDest = fertagusOrigin;
+    } else {
+      _wizLOrg = fertagusDest;
+      _wizLDest = fertagusOrigin;
+      _wizMOrg = fertagusOrigin;
+      _wizMDest = fertagusDest;
+    }
+    // Garante que os valores para Lisboa são válidos
+    const lo = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizLOrg);
+    const ld = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizLDest);
+    if (lo < 0 || ld <= lo) {
+      _wizLOrg = "corroios";
+      _wizLDest = "roma_areeiro";
+      _wizMOrg = "roma_areeiro";
+      _wizMDest = "corroios";
+    }
+    _wizSame = true;
+    _wizLFrom = "07:00";
+    _wizLTo = "";
+    _wizMFrom = "16:00";
+    _wizMTo = "";
+    _wizStep = 1;
+    _wizActive = true;
+    _wizEditing = false;
+    renderSmartSection(container);
+  });
 
-  updateSyncUI();
-};
+  // ── Estado: Resumo ────────────────────────────────────────────────────────
 
-window.toggleRegularStations = function () {
-  enableRegularStations = !enableRegularStations;
-  localStorage.setItem("enable_regular", enableRegularStations);
-  updateSettingsToggles();
-};
+  on("smart-edit-btn", "click", () => {
+    _wizLOrg = localStorage.getItem("smart_lisboa_org") || "corroios";
+    _wizLDest = localStorage.getItem("smart_lisboa_dest") || "roma_areeiro";
+    _wizMOrg = localStorage.getItem("smart_margem_org") || "roma_areeiro";
+    _wizMDest = localStorage.getItem("smart_margem_dest") || "corroios";
+    _wizSame = localStorage.getItem("smart_same_stations") !== "false";
+    _wizLFrom = localStorage.getItem("smart_lisboa_from") || "07:00";
+    _wizLTo = localStorage.getItem("smart_lisboa_to") || "";
+    _wizMFrom = localStorage.getItem("smart_margem_from") || "16:00";
+    _wizMTo = localStorage.getItem("smart_margem_to") || "";
+    _wizStep = 1;
+    _wizActive = true;
+    _wizEditing = true;
+    renderSmartSection(container);
+  });
 
-window.toggleSmartSchedule = function () {
-  enableSmartSchedule = !enableSmartSchedule;
-  localStorage.setItem("enable_smart", enableSmartSchedule);
-  updateSettingsToggles();
-};
+  on("smart-disable-btn", "click", () => {
+    [
+      "smart_enabled",
+      "smart_same_stations",
+      "smart_lisboa_org",
+      "smart_lisboa_dest",
+      "smart_margem_org",
+      "smart_margem_dest",
+      "smart_lisboa_from",
+      "smart_lisboa_to",
+      "smart_margem_from",
+      "smart_margem_to",
+    ].forEach((k) => localStorage.removeItem(k));
+    enableSmartSchedule = false;
+    enableRegularStations = false;
+    _wizActive = false;
+    _wizEditing = false;
+    _wizStep = 1;
+    renderSmartSection(container);
+  });
 
-window.toggleSyncStations = function () {
-  syncStations = !syncStations;
-  localStorage.setItem("pref_sync_stations", syncStations);
-  updateSyncUI();
-};
+  // ── Wizard Passo 1 ────────────────────────────────────────────────────────
 
-window.updateSettingsToggles = function () {
-  updateToggleVisual(
-    "toggle-regular",
-    "regular-stations-content",
-    enableRegularStations,
-  );
-  updateToggleVisual(
-    "toggle-smart",
-    "smart-schedule-content",
-    enableSmartSchedule,
-  );
-};
+  on("wiz-same-yes", "click", () => {
+    _wizSame = true;
+    renderSmartSection(container);
+  });
 
-function updateToggleVisual(btnId, contentId, isEnabled) {
-  const btn = document.getElementById(btnId);
-  if (!btn) return;
-  const dot = btn.querySelector(".toggle-dot");
-  const content = document.getElementById(contentId);
+  on("wiz-same-no", "click", () => {
+    _wizSame = false;
+    renderSmartSection(container);
+  });
 
-  if (isEnabled) {
-    btn.classList.remove("bg-zinc-600");
-    btn.classList.add("bg-blue-600");
-    dot.classList.remove("translate-x-0");
-    dot.classList.add(
-      btnId === "btn-sync-stations" ? "translate-x-3" : "translate-x-5",
-    );
-    content.classList.remove("opacity-50", "pointer-events-none");
-  } else {
-    btn.classList.add("bg-zinc-600");
-    btn.classList.remove("bg-blue-600");
-    dot.classList.add("translate-x-0");
-    dot.classList.remove(
-      btnId === "btn-sync-stations" ? "translate-x-3" : "translate-x-5",
-    );
-    content.classList.add("opacity-50", "pointer-events-none");
+  // ── Wizard Passo 2 — selects Lisboa ───────────────────────────────────────
+
+  on("wiz-lisb-org", "change", () => {
+    const sel = q("wiz-lisb-org");
+    if (!sel) return;
+    _wizLOrg = sel.value;
+    // Valida destino: tem de ser depois da origem
+    const orgIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizLOrg);
+    const destIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizLDest);
+    if (destIdx <= orgIdx) {
+      _wizLDest = FERTAGUS_STATIONS[orgIdx + 1]?.key || null;
+    }
+    if (_wizSame) {
+      _wizMOrg = _wizLDest;
+      _wizMDest = _wizLOrg;
+    }
+    renderSmartSection(container);
+  });
+
+  on("wiz-lisb-dest", "change", () => {
+    const sel = q("wiz-lisb-dest");
+    if (!sel) return;
+    _wizLDest = sel.value;
+    if (_wizSame) {
+      _wizMOrg = _wizLDest;
+      _wizMDest = _wizLOrg;
+    }
+    renderSmartSection(container);
+  });
+
+  // ── Wizard Passo 2 — selects Margem ───────────────────────────────────────
+
+  on("wiz-marg-org", "change", () => {
+    const sel = q("wiz-marg-org");
+    if (!sel) return;
+    _wizMOrg = sel.value;
+    // Valida destino: tem de ser antes da origem (sentido Margem)
+    const orgIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizMOrg);
+    const destIdx = FERTAGUS_STATIONS.findIndex((s) => s.key === _wizMDest);
+    if (destIdx >= orgIdx) {
+      _wizMDest = FERTAGUS_STATIONS[orgIdx - 1]?.key || null;
+    }
+    renderSmartSection(container);
+  });
+
+  on("wiz-marg-dest", "change", () => {
+    const sel = q("wiz-marg-dest");
+    if (!sel) return;
+    _wizMDest = sel.value;
+  });
+
+  // ── Wizard Passo 3 — leitura imediata (sem re-render) ─────────────────────
+
+  on("wiz-lisb-from", "change", () => {
+    const sel = q("wiz-lisb-from");
+    if (sel) _wizLFrom = sel.value;
+  });
+  on("wiz-lisb-to", "change", () => {
+    const sel = q("wiz-lisb-to");
+    if (sel) _wizLTo = sel.value;
+  });
+  on("wiz-marg-from", "change", () => {
+    const sel = q("wiz-marg-from");
+    if (sel) _wizMFrom = sel.value;
+  });
+  on("wiz-marg-to", "change", () => {
+    const sel = q("wiz-marg-to");
+    if (sel) _wizMTo = sel.value;
+  });
+
+  // ── Navegação ─────────────────────────────────────────────────────────────
+
+  on("smart-back-btn", "click", () => {
+    if (_wizStep === 1) {
+      _wizActive = false;
+      _wizEditing = false;
+    } else {
+      // Guarda valores do passo atual antes de recuar
+      _readCurrentStepValues(container);
+      _wizStep--;
+    }
+    renderSmartSection(container);
+  });
+
+  on("smart-next-btn", "click", () => {
+    _readCurrentStepValues(container);
+    _wizStep++;
+    renderSmartSection(container);
+  });
+
+  on("smart-confirm-btn", "click", () => {
+    _readCurrentStepValues(container);
+    _saveAndApplySmart(container);
+  });
+}
+
+/** Lê os valores dos selects do passo atual para o estado do wizard. */
+function _readCurrentStepValues(container) {
+  const q = (id) => container.querySelector(`#${id}`);
+
+  if (_wizStep === 2) {
+    const lo = q("wiz-lisb-org");
+    const ld = q("wiz-lisb-dest");
+    if (lo) _wizLOrg = lo.value;
+    if (ld) _wizLDest = ld.value;
+    if (!_wizSame) {
+      const mo = q("wiz-marg-org");
+      const md = q("wiz-marg-dest");
+      if (mo) _wizMOrg = mo.value;
+      if (md) _wizMDest = md.value;
+    } else {
+      _wizMOrg = _wizLDest;
+      _wizMDest = _wizLOrg;
+    }
+  } else if (_wizStep === 3) {
+    const lf = q("wiz-lisb-from");
+    const lt = q("wiz-lisb-to");
+    const mf = q("wiz-marg-from");
+    const mt = q("wiz-marg-to");
+    if (lf) _wizLFrom = lf.value;
+    if (lt) _wizLTo = lt.value;
+    if (mf) _wizMFrom = mf.value;
+    if (mt) _wizMTo = mt.value;
   }
 }
 
-window.updateSyncUI = function () {
-  const btn = document.getElementById("btn-sync-stations");
-  if (!btn) return;
-  const dot = btn.querySelector("div");
-  const margemGroup = document.getElementById("settings-margem-group");
+function _saveAndApplySmart(container) {
+  // Persiste no localStorage
+  localStorage.setItem("smart_enabled", "true");
+  localStorage.setItem("smart_same_stations", _wizSame ? "true" : "false");
+  localStorage.setItem("smart_lisboa_org", _wizLOrg || "");
+  localStorage.setItem("smart_lisboa_dest", _wizLDest || "");
+  localStorage.setItem("smart_margem_org", _wizMOrg || "");
+  localStorage.setItem("smart_margem_dest", _wizMDest || "");
+  localStorage.setItem("smart_lisboa_from", _wizLFrom || "");
+  localStorage.setItem("smart_lisboa_to", _wizLTo || "");
+  localStorage.setItem("smart_margem_from", _wizMFrom || "");
+  localStorage.setItem("smart_margem_to", _wizMTo || "");
 
-  if (syncStations) {
-    btn.classList.add("bg-blue-600");
-    btn.classList.remove("bg-zinc-600");
-    dot.classList.add("translate-x-3");
-    dot.classList.remove("translate-x-0");
-    if (margemGroup) margemGroup.classList.add("hidden");
-  } else {
-    btn.classList.add("bg-zinc-600");
-    btn.classList.remove("bg-blue-600");
-    dot.classList.add("translate-x-0");
-    dot.classList.remove("translate-x-3");
-    if (margemGroup) margemGroup.classList.remove("hidden");
+  enableSmartSchedule = true;
+  enableRegularStations = true;
+  _wizActive = false;
+  _wizEditing = false;
+
+  // Aplica imediatamente se dentro de uma janela configurada
+  const detected = _detectSmartTab();
+  if (detected) {
+    activeTab = detected;
+    localStorage.setItem("ft_tab", activeTab);
+    loadStationPrefs(activeTab);
+
+    if (typeof populateOriginSelect === "function") populateOriginSelect();
+    if (typeof populateDestSelect === "function")
+      populateDestSelect(fertagusOrigin);
+
+    const orgSel = document.getElementById("sel-origin");
+    const dstSel = document.getElementById("sel-dest");
+    if (orgSel) orgSel.value = fertagusOrigin;
+    if (dstSel) dstSel.value = fertagusDest;
+
+    if (typeof updateAppState === "function") updateAppState();
   }
-};
 
-window.saveRegularStations = function () {
-  const lOrg = document.getElementById("set-lisboa-org").value;
-  const lDest = document.getElementById("set-lisboa-dest").value;
-  const mOrg = document.getElementById("set-margem-org").value;
-  const mDest = document.getElementById("set-margem-dest").value;
-
-  localStorage.setItem("pref_lisboa_org", lOrg);
-  localStorage.setItem("pref_lisboa_dest", lDest);
-
-  if (syncStations) {
-    localStorage.setItem("pref_margem_org", lDest);
-    localStorage.setItem("pref_margem_dest", lOrg);
-  } else {
-    localStorage.setItem("pref_margem_org", mOrg);
-    localStorage.setItem("pref_margem_dest", mDest);
-  }
-};
-
-window.saveSmartSchedule = function () {
-  const morn = document.getElementById("smart-morning").value;
-  const aft = document.getElementById("smart-afternoon").value;
-  localStorage.setItem("pref_morning", morn);
-  localStorage.setItem("pref_afternoon", aft);
-};
+  renderSmartSection(container);
+}
 
 // ─── PWA ──────────────────────────────────────────────────────────────────────
 
@@ -291,49 +951,29 @@ window.installPWA = async function () {
 
 // ─── INJEÇÃO NO MENU ──────────────────────────────────────────────────────────
 
-/**
- * Injeta os elementos customizados (definições, botão de refresh, aviso legal)
- * no menu gerado pelo menu.js.
- * Chamada com setTimeout(100) a partir do init() para garantir que o menu.js
- * já construiu o DOM do menu.
- */
 function injectCustomMenuElements() {
-  // 1. Injeta as Definições
+  // 1. Injeta as Definições (Horário Inteligente)
   const menuOverlay = document.getElementById("menu-overlay");
   const settingsTemplate = document.getElementById("menu-settings-template");
 
   if (menuOverlay && settingsTemplate) {
     const nav = menuOverlay.querySelector("nav");
     if (nav) {
-      const container = document.createElement("div");
-      container.innerHTML = settingsTemplate.innerHTML;
-      nav.parentNode.insertBefore(container, nav.nextSibling);
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = settingsTemplate.innerHTML;
+      nav.parentNode.insertBefore(wrapper, nav.nextSibling);
 
-      populateSettingsUI();
+      // Inicializa o smart section
+      const smartContainer = wrapper.querySelector("#smart-schedule-section");
+      if (smartContainer) {
+        renderSmartSection(smartContainer);
+      }
 
-      // Adiciona os event listeners aos elementos injetados pelo template
-      // (feito aqui em vez de inline para conformidade com CSP)
-      const addL = (id, evt, fn) => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener(evt, fn);
-      };
-
-      addL("toggle-regular", "click", toggleRegularStations);
-      addL("toggle-smart", "click", toggleSmartSchedule);
-      addL("btn-sync-stations", "click", toggleSyncStations);
-      addL("set-lisboa-org", "change", saveRegularStations);
-      addL("set-lisboa-dest", "change", saveRegularStations);
-      addL("set-margem-org", "change", saveRegularStations);
-      addL("set-margem-dest", "change", saveRegularStations);
-      addL("smart-morning", "change", saveSmartSchedule);
-      addL("smart-afternoon", "change", saveSmartSchedule);
-
-      // Remove o template para não deixar IDs duplicados no DOM
       settingsTemplate.remove();
     }
   }
 
-  // 2. Injeta o botão de Refresh no header do menu (à esquerda do trigger)
+  // 2. Botão de Refresh no header
   const header = document.querySelector("#global-nav header");
   const trigger = document.getElementById("menu-trigger");
 
@@ -341,7 +981,6 @@ function injectCustomMenuElements() {
     const wrapper = document.createElement("div");
     wrapper.id = "menu-controls-wrapper";
     wrapper.className = "flex items-center gap-1";
-
     header.insertBefore(wrapper, trigger);
     wrapper.appendChild(trigger);
 
@@ -351,13 +990,12 @@ function injectCustomMenuElements() {
       "p-2 rounded-full transition-colors text-zinc-900 dark:text-white group";
     btn.setAttribute("aria-label", "Atualizar");
     btn.innerHTML = `<i data-lucide="refresh-cw" id="refresh-icon-menu" class="w-5 h-5 transition-transform group-active:scale-90"></i>`;
-
     wrapper.insertBefore(btn, trigger);
 
     if (window.lucide) lucide.createIcons();
   }
 
-  // 3. Injeta o aviso legal no footer
+  // 3. Aviso legal no footer
   const footer = document.getElementById("global-footer");
   if (footer) {
     const p = document.createElement("p");

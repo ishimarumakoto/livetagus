@@ -46,10 +46,11 @@ let currentTheme;
 let currentTrainList = [];
 let displayLimit = 10;
 let nextTrainDate = null;
-let syncStations = true;
+let activeAlerts = [];
+
+// Aliases mantidos por compatibilidade com código existente
 let enableRegularStations = false;
 let enableSmartSchedule = false;
-let activeAlerts = [];
 
 // ─── FUNÇÕES UTILITÁRIAS ──────────────────────────────────────────────────────
 

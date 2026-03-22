@@ -353,7 +353,10 @@
             </div>
           </div>
         </div>
-        <div id="global-footer"></div>
+        <div
+          style="margin-right: -24px; margin-left: -24px"
+          id="global-footer"
+        ></div>
       </div>
 
       <!-- Train Details Modal -->
@@ -372,152 +375,9 @@
 
     <!-- Hidden HTML Templates for Menu Injection -->
     <div id="menu-settings-template" class="hidden">
-      <div
-        class="mt-8 pt-8 border-t border-zinc-200 dark:border-white/10 space-y-6"
-      >
-        <!-- Regular Stations -->
-        <div>
-          <div class="flex justify-between items-center mb-3">
-            <span
-              class="text-xs font-bold tracking-widest text-zinc-500 uppercase"
-            >
-              Estações Regulares (Fase de Testes)
-            </span>
-            <button
-              id="toggle-regular"
-              class="w-10 h-5 rounded-full relative transition-colors cursor-pointer bg-zinc-600"
-              aria-label="Alternar estações regulares"
-            >
-              <div
-                class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 toggle-dot"
-              ></div>
-            </button>
-          </div>
-
-          <div
-            id="regular-stations-content"
-            class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-4 opacity-50 pointer-events-none transition-opacity"
-          >
-            <div class="flex items-center justify-between">
-              <span
-                class="text-xs font-medium text-zinc-900 dark:text-zinc-100"
-              >
-                Usar Mesmas Estações (Invertidas)
-              </span>
-              <button
-                id="btn-sync-stations"
-                class="w-8 h-4 rounded-full relative transition-colors cursor-pointer bg-zinc-600"
-                aria-label="Sincronizar estações"
-              >
-                <div
-                  class="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-300 toggle-dot"
-                ></div>
-              </button>
-            </div>
-
-            <div
-              class="space-y-3 pt-2 border-t border-black/5 dark:border-white/10"
-            >
-              <p
-                class="text-[9px] uppercase font-bold text-zinc-500 dark:text-zinc-400"
-              >
-                Sentido Lisboa
-              </p>
-              <div class="grid grid-cols-2 gap-2">
-                <select
-                  id="set-lisboa-org"
-                  class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs w-full text-zinc-900 dark:text-zinc-100"
-                  aria-label="Partida Lisboa"
-                ></select>
-                <select
-                  id="set-lisboa-dest"
-                  class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs w-full text-zinc-900 dark:text-zinc-100"
-                  aria-label="Destino Lisboa"
-                ></select>
-              </div>
-            </div>
-
-            <div
-              id="settings-margem-group"
-              class="space-y-3 pt-2 border-t border-black/5 dark:border-white/10 hidden"
-            >
-              <p
-                class="text-[9px] uppercase font-bold text-zinc-500 dark:text-zinc-400"
-              >
-                Sentido Margem
-              </p>
-              <div class="grid grid-cols-2 gap-2">
-                <select
-                  id="set-margem-org"
-                  class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs w-full text-zinc-900 dark:text-zinc-100"
-                  aria-label="Partida Margem"
-                ></select>
-                <select
-                  id="set-margem-dest"
-                  class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-2 text-xs w-full text-zinc-900 dark:text-zinc-100"
-                  aria-label="Destino Margem"
-                ></select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Smart Schedule -->
-        <div>
-          <div class="flex justify-between items-center mb-3">
-            <span
-              class="text-xs font-bold tracking-widest text-zinc-500 uppercase"
-            >
-              Horário Inteligente (Fase de Testes)
-            </span>
-            <button
-              id="toggle-smart"
-              class="w-10 h-5 rounded-full relative transition-colors cursor-pointer bg-zinc-600"
-              aria-label="Alternar horário inteligente"
-            >
-              <div
-                class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 toggle-dot"
-              ></div>
-            </button>
-          </div>
-
-          <div
-            id="smart-schedule-content"
-            class="bg-zinc-100 dark:bg-zinc-800/50 rounded-xl p-4 space-y-4 opacity-50 pointer-events-none transition-opacity"
-          >
-            <div class="flex items-center justify-between">
-              <span
-                class="text-xs font-medium text-zinc-900 dark:text-zinc-100"
-              >
-                Manhã (05:30 - 13:00)
-              </span>
-              <select
-                id="smart-morning"
-                class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-1.5 text-xs w-28 text-zinc-900 dark:text-zinc-100"
-                aria-label="Sentido Manhã"
-              >
-                <option value="lisboa">Sentido Lisboa</option>
-                <option value="margem">Sentido Margem</option>
-              </select>
-            </div>
-            <div
-              class="flex items-center justify-between border-t border-black/5 dark:border-white/10 pt-3"
-            >
-              <span
-                class="text-xs font-medium text-zinc-900 dark:text-zinc-100"
-              >
-                Tarde (13:00 - 02:00)
-              </span>
-              <select
-                id="smart-afternoon"
-                class="bg-white/50 dark:bg-black/20 border border-black/5 dark:border-white/10 rounded-lg p-1.5 text-xs w-28 text-zinc-900 dark:text-zinc-100"
-                aria-label="Sentido Tarde"
-              >
-                <option value="margem">Sentido Margem</option>
-                <option value="lisboa">Sentido Lisboa</option>
-              </select>
-            </div>
-          </div>
+      <div class="mt-8 pt-8 border-t border-zinc-200 dark:border-white/10">
+        <div id="smart-schedule-section">
+          <!-- Preenchido dinamicamente por renderSmartSection() em app-settings.js -->
         </div>
       </div>
     </div>
