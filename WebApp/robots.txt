@@ -1,5 +1,4 @@
 User-agent: *
-Disallow: /sudoku
 Disallow: /stats
 Disallow: /dev
 Disallow: /404

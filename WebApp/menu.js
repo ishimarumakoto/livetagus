@@ -2,6 +2,13 @@
    Funções: Menu Global, Footer Global, Definições de Tema, API Status, CSP Compliant
 */
 
+window.sa_event =
+  window.sa_event ||
+  function () {
+    var a = [].slice.call(arguments);
+    window.sa_event.q ? window.sa_event.q.push(a) : (window.sa_event.q = [a]);
+  };
+
 document.addEventListener("DOMContentLoaded", () => {
   injectNavigation();
   injectFooter();
@@ -227,6 +234,7 @@ function initShareButton() {
   }
 
   btn.addEventListener("click", async () => {
+    sa_event("native_share_button");
     // Tentar Web Share API nativa (mobile/desktop moderno)
     const shareData = { title: "LiveTagus", text: SHARE_TEXT, url: SHARE_URL };
     if (

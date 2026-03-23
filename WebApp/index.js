@@ -11,6 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const browserBtn = document.getElementById("browser-btn");
   const webHint = document.getElementById("web-hint");
 
+  browserBtn.addEventListener("click", () => sa_event("app_on_browser"));
+
   // 1. Deteção Inicial
   const isStandalone =
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -118,6 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("pwa_installed", "true");
     if (installingMsg) installingMsg.classList.add("hidden");
     if (installedMsg) installedMsg.classList.remove("hidden");
+    sa_event("pwa_install_index");
   }
 });
 

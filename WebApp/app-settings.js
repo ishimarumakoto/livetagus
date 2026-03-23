@@ -165,9 +165,25 @@ window._detectSmartTab = function () {
   const mFrom = localStorage.getItem("smart_margem_from") || "";
   const mTo = localStorage.getItem("smart_margem_to") || "";
 
-  // Lisboa tem prioridade se ambas as janelas se sobrepuserem
-  if (inWindow(lFrom, lTo)) return "lisboa";
-  if (inWindow(mFrom, mTo)) return "margem";
+  // Verificar janela autalmente aberta
+  const isLisboa = inWindow(lFrom, lTo);
+  const isMargem = inWindow(mFrom, mTo);
+
+  // A: so está dentro de uma das janelas
+  if (isLisboa && !isMargem) return "lisboa";
+  if (isMargem && !isLisboa) return "margem";
+
+  // B: as tuas janelas estão ativas (sobreposição porque faltam horas de fim)
+  if (isLisboa && isMargem) {
+    // comparar qual começou mais tarde
+    if (lFrom > mFrom) {
+      return "lisboa";
+    } else {
+      return "margem";
+    }
+  }
+
+  // nenhuma
   return null;
 };
 
@@ -834,6 +850,7 @@ function _attachSmartListeners(container) {
   on("smart-confirm-btn", "click", () => {
     _readCurrentStepValues(container);
     _saveAndApplySmart(container);
+    sa_event("ativou_smart_tab");
   });
 }
 
@@ -942,9 +959,15 @@ window.setupPWA = function () {
 
 window.installPWA = async function () {
   if (deferredPrompt) {
+    sa_event("pwa_install_clicked");
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     deferredPrompt = null;
+
+    if (outcome === "accepted") {
+      sa_event("pwa_install_accepted");
+    }
+
     AlertsManager.dismiss(null, "pwa-install");
   }
 };

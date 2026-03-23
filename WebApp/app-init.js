@@ -169,6 +169,18 @@ document.body.addEventListener("click", function (e) {
       installPWA();
       break;
 
+    case "play-sudoku":
+      sa_event("sudoku_started_alertbtn");
+      break;
+
+    case "open-spotify":
+      sa_event("spotify_suggestion_opened");
+      break;
+
+    case "go-offline":
+      sa_event("offline_schedules_forced");
+      break;
+
     default:
       break;
   }

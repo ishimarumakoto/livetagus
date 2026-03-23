@@ -125,7 +125,7 @@ const AlertsManager = {
         const txt = alert.textolink || "Ver";
         actionHtml = `<a href="${alert.link}" target="_blank" class="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wider text-blue-500 border border-blue-500/30 px-3 py-1.5 rounded transition-colors active:scale-95">${txt}</a>`;
       } else if (alert.isSudoku) {
-        actionHtml = `<a href="./sudoku" class="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wider text-white bg-[var(--accent,#3b82f6)] px-3 py-1.5 rounded transition-transform active:scale-95 shadow-sm">Jogar</a>`;
+        actionHtml = `<a id="sudoku-button" href="./sudoku" data-action="play-sudoku" class="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wider text-white bg-[var(--accent,#3b82f6)] px-3 py-1.5 rounded transition-transform active:scale-95 shadow-sm">Jogar</a>`;
       }
 
       html += `

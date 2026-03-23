@@ -272,6 +272,7 @@ function updateAppState() {
  * NOTA CSP: O botão de fechar usa data-action="close-details".
  */
 function openDetails(trainId) {
+  sa_event("open_details_train");
   const t = currentTrainList.find((train) => train.id == trainId);
   if (!t) return;
   let occColorClass = "text-emerald-500",
@@ -315,7 +316,7 @@ function openDetails(trainId) {
       const textColor = isPassed
         ? "text-zinc-600"
         : isNext
-          ? "text-zinc-200 font-bold"
+          ? "text-zinc-600 font-bold dark:text-zinc-200"
           : "text-zinc-500";
       const timeColor = isPassed
         ? "text-zinc-700"
@@ -459,7 +460,7 @@ window.renderList = function (list) {
   container.innerHTML = "";
 
   if (!list || !list.length) {
-    container.innerHTML = `<div class="h-60 flex flex-col items-center justify-center text-zinc-500 gap-3"><i data-lucide="train-track" class="w-10 h-10 opacity-20"></i><p class="text-xs tracking-wider uppercase font-medium">Sem comboios próximos<br><a class="text-center underline underline-offset-2" href="./horarios">Vê Horários Offline</a></p></div>`;
+    container.innerHTML = `<div class="h-60 flex flex-col items-center justify-center text-zinc-500 gap-3"><i data-lucide="train-track" class="w-10 h-10 opacity-20"></i><p class="text-xs tracking-wider uppercase font-medium">Sem comboios próximos<br><a class="text-center underline underline-offset-2" data-action="go-offline" href="./horarios">Vê Horários Offline</a></p></div>`;
     if (window.lucide) lucide.createIcons();
     loadMoreBtn.classList.add("hidden");
     nextTrainDate = null;
