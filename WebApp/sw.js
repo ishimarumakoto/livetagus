@@ -1,4 +1,4 @@
-const CACHE_NAME = "livetagus-v.b88.23032026";
+const CACHE_NAME = "livetagus-v.b18.27032026";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
@@ -11,7 +11,6 @@ const ASSETS_TO_CACHE = [
   "./app-trains.js",
   "./app-ui.js",
   "./lucide-icons.js",
-  "./spotifycard.js",
   "./sudoku.html",
   "./sudoku.js",
   "./sudoku-train.js",

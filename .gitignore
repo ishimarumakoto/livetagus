@@ -13,6 +13,7 @@ yarn-error.log*
 
 # Ficheiros atoa
 capacitor.config.json
+update_cm.js
 .DS_Store
 Thumbs.db
 .hintrc

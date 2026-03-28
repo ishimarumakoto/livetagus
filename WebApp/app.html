@@ -56,7 +56,6 @@
     <link rel="stylesheet" href="./output.css" />
     <script src="./offline.js"></script>
     <script src="./menu.js" defer></script>
-    <script src="./spotifycard.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -278,14 +277,59 @@
           <span
             class="text-[0.65rem] font-extrabold uppercase tracking-[0.2em] text-blue-500 whitespace-nowrap"
           >
-            A nossa sugestão para a Viagem
+            jogo de sudoku
           </span>
           <div
             class="flex-1 h-px bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50"
           ></div>
         </div>
 
-        <!-- Spotify Card -->
+        <div
+          class="bg-white dark:bg-[#1c1c1e] rounded-3xl p-5 mb-5 shadow-sm border border-gray-100 dark:border-gray-800 flex items-center justify-between gap-4 transition-all duration-300"
+        >
+          <div class="flex items-center gap-4">
+            <div
+              class="flex-shrink-0 grid grid-cols-2 grid-rows-2 gap-0.5 w-12 h-12 p-1.5 bg-gray-100 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700"
+            >
+              <div
+                class="bg-white dark:bg-gray-700 rounded-sm flex items-center justify-center font-bold text-gray-800 dark:text-gray-200 text-[11px]"
+              >
+                2
+              </div>
+              <div class="bg-gray-200 dark:bg-gray-600 rounded-sm"></div>
+              <div class="bg-gray-200 dark:bg-gray-600 rounded-sm"></div>
+              <div
+                class="bg-white dark:bg-gray-700 rounded-sm flex items-center justify-center font-bold text-gray-800 dark:text-gray-200 text-[11px]"
+              >
+                6
+              </div>
+            </div>
+
+            <div class="flex flex-col">
+              <h3
+                class="text-gray-900 dark:text-white font-bold text-lg leading-tight"
+              >
+                Tempo extra?
+              </h3>
+              <p
+                class="text-gray-500 dark:text-gray-400 text-sm mt-0.5 leading-snug"
+              >
+                Enquanto o comboio não chega, aproveita para jogar um Sudoku
+                rápido!
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="./sudoku"
+            data-action="open-sudoku-btm"
+            class="flex-shrink-0 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-full text-sm shadow-md transition-colors duration-200 active:scale-95"
+          >
+            Jogar
+          </a>
+        </div>
+
+        <!-- Spotify Card
         <div
           id="spotify-card-container"
           class="bg-white/90 dark:bg-zinc-800/40 backdrop-blur-sm border border-black/5 dark:border-white/5 shadow-lg rounded-2xl overflow-hidden mb-8 mt-4 hidden animate-fade-in w-full relative group"
@@ -353,7 +397,7 @@
               </a>
             </div>
           </div>
-        </div>
+        </div> -->
         <div
           style="margin-right: -24px; margin-left: -24px"
           id="global-footer"

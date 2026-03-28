@@ -173,8 +173,8 @@ document.body.addEventListener("click", function (e) {
       sa_event("sudoku_started_alertbtn");
       break;
 
-    case "open-spotify":
-      sa_event("spotify_suggestion_opened");
+    case "open-sudoku-btm":
+      sa_event("sudoku_started_btm");
       break;
 
     case "go-offline":

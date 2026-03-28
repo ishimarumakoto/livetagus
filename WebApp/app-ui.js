@@ -622,7 +622,6 @@ window.renderList = function (list) {
         </div>`;
     }
 
-    // NOTA CSP: Botão "Ver Detalhes" usa data-action em vez de onclick
     const innerHTML = `
       <div class="flex justify-between items-start mb-2">
         <div class="flex flex-col">
