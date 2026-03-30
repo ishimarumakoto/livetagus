@@ -300,7 +300,7 @@ function _buildInfoHTML() {
         <div class="flex flex-col gap-1.5 pt-1 border-t border-black/5 dark:border-white/10">
           <div class="flex items-center gap-2 text-[10px] text-zinc-400">
             <i data-lucide="arrow-right-left" class="w-3 h-3 shrink-0 text-zinc-400"></i>
-            <span>Manhã sentido Lisboa, tarde sentido Margem — ou o contrário.</span>
+            <span>Manhã sentido Lisboa, tarde sentido Margem, ou o contrário.</span>
           </div>
           <div class="flex items-center gap-2 text-[10px] text-zinc-400">
             <i data-lucide="lock" class="w-3 h-3 shrink-0 text-zinc-400"></i>
@@ -958,6 +958,20 @@ window.setupPWA = function () {
 };
 
 window.installPWA = async function () {
+  // é ios?
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  // ios apenas popup de como instalar
+  if (isIOS) {
+    sa_event("pwa_install_ios_clicked");
+    showIOSInstallModal();
+    AlertsManager.dismiss(null, "pwa-install");
+    return;
+  }
+
+  // normal para Android / Chrome
   if (deferredPrompt) {
     sa_event("pwa_install_clicked");
     deferredPrompt.prompt();
@@ -969,8 +983,95 @@ window.installPWA = async function () {
     }
 
     AlertsManager.dismiss(null, "pwa-install");
+  } else {
+    alert(
+      "Para instalar, usa as opções do teu navegador ('Adicionar ao Ecrã Principal').",
+    );
+    AlertsManager.dismiss(null, "pwa-install");
   }
 };
+
+// ─── modal de como instalar em ios ──────────────────────────────────────────────
+function showIOSInstallModal() {
+  let modal = document.getElementById("ios-install-modal");
+  const backdrop = document.getElementById("modal-backdrop");
+
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "ios-install-modal";
+    modal.className =
+      "fixed inset-x-0 bottom-0 h-auto max-h-[85vh] bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-xl border-t border-black/5 dark:border-white/10 rounded-t-[2rem] z-50 transform translate-y-full transition-transform duration-300 flex flex-col shadow-2xl p-6 pb-10";
+
+    modal.innerHTML = `
+      <div class="relative w-full">
+        <button id="close-ios-modal" class="absolute -top-2 right-0 p-2 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 rounded-full text-zinc-500 dark:text-zinc-400 transition-all">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+        
+        <div class="flex flex-col items-center mt-2">
+          <div class="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 border border-blue-500/20 shadow-inner">
+            <i data-lucide="download" class="w-8 h-8 text-blue-500"></i>
+          </div>
+          
+          <h2 class="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mb-2">Instalar no iPhone</h2>
+          
+          <div class="w-full bg-amber-500/10 dark:bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-5 flex items-start gap-3">
+            <i data-lucide="alert-triangle" class="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-500 mt-0.5"></i>
+            <p class="text-xs text-amber-800 dark:text-amber-400 leading-relaxed font-medium">
+              Aviso: Tens de abrir este site no <b>Safari</b>. A instalação não funciona no Chrome, Instagram ou outras apps.
+            </p>
+          </div>
+
+          <div class="w-full space-y-4">
+            <div class="flex items-center gap-4 bg-zinc-100 dark:bg-zinc-800/50 p-3.5 rounded-xl border border-black/5 dark:border-white/5">
+              <div class="w-8 h-8 shrink-0 bg-white dark:bg-zinc-700 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-600 flex items-center justify-center">
+                <i data-lucide="share" class="w-4 h-4 text-blue-500"></i>
+              </div>
+              <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300 leading-tight">
+                1. Toca no botão <b>Partilhar</b> na barra inferior do Safari, ou superior dependendo da tua versão.
+              </p>
+            </div>
+            
+            <div class="flex items-center gap-4 bg-zinc-100 dark:bg-zinc-800/50 p-3.5 rounded-xl border border-black/5 dark:border-white/5">
+              <div class="w-8 h-8 shrink-0 bg-white dark:bg-zinc-700 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-600 flex items-center justify-center">
+                <i data-lucide="square-plus" class="w-4 h-4 text-zinc-900 dark:text-white"></i>
+              </div>
+              <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300 leading-tight">
+                2. Desliza para baixo e escolhe <b>"Adicionar ao Ecrã Principal"</b>. Esta pode estar escondida em "Mais Opções"!
+              </p>
+            </div>
+          </div>
+          
+          <button id="understood-ios-modal" class="w-full mt-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-bold tracking-widest uppercase transition-all shadow-md shadow-blue-500/20">
+            Percebido
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const closeModal = () => {
+      modal.classList.add("translate-y-full");
+      backdrop.classList.add("opacity-0");
+      setTimeout(() => backdrop.classList.add("hidden"), 300);
+    };
+
+    document
+      .getElementById("close-ios-modal")
+      .addEventListener("click", closeModal);
+    document
+      .getElementById("understood-ios-modal")
+      .addEventListener("click", closeModal);
+  }
+
+  if (window.lucide) lucide.createIcons();
+
+  if (backdrop) {
+    backdrop.classList.remove("hidden");
+    setTimeout(() => backdrop.classList.remove("opacity-0"), 10);
+  }
+  setTimeout(() => modal.classList.remove("translate-y-full"), 10);
+}
 
 // ─── INJEÇÃO NO MENU ──────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "livetagus-v.b18.27032026";
+const CACHE_NAME = "livetagus-v.b48.30032026";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
@@ -61,10 +61,7 @@ self.addEventListener("activate", (event) => {
 
 // offline-first: procurar ficheiro em cache depois online
 self.addEventListener("fetch", (event) => {
-  if (
-    event.request.url.includes("api.") ||
-    event.request.url.includes("npoint")
-  ) {
+  if (event.request.url.includes("api.")) {
     return;
   }
 

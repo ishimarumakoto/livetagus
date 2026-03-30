@@ -6,9 +6,8 @@
 
 // ─── API & CONSTANTES ────────────────────────────────────────────────────────
 
-const PROXY = "https://corsproxy.io/?";
 const API_FERTAGUS_NEW = "https://api.livetagus.pt/fertagus/";
-const API_ALERTS = "https://api.npoint.io/fe6b8c687169feff5f87";
+const API_ALERTS = "https://api.livetagus.pt/avisos/";
 const CLIENT_API_KEY = "KoKi30rVWuwkF9lqKL6j4mb0VMg3dIXWs6QDHZ3de0G8lC5qvu";
 
 const FERTAGUS_STATIONS = [
@@ -66,17 +65,21 @@ function calculateDirection(orgKey, dstKey) {
 }
 
 /**
- * Faz scroll suave para a área de conteúdo principal (alertas ou divisor).
+ * Faz scroll suave para a área de conteúdo principal.
+ * Prioriza: alertas dinâmicos → divisor "Próximo Comboio" → divisor estático.
  */
 function focusOnContent() {
+  // 1. Bloco de alertas (injetado pelo reconciliador dentro de #train-list)
   const alerts = document.getElementById("alerts-dynamic-container");
-  const divider = document.getElementById("next-divider");
-  if (alerts) {
-    alerts.scrollIntoView({ behavior: "smooth", block: "start" });
-  } else if (divider) {
-    divider.scrollIntoView({ behavior: "smooth", block: "start" });
+  // 2. Divisor "Próximo Comboio" injetado dinamicamente (data-key="__divider__")
+  const dynamicDivider = document.querySelector("[data-key='__divider__']");
+  // 3. Divisor estático "Fim da Lista" (fallback)
+  const staticDivider = document.getElementById("next-divider");
+
+  const target = alerts || dynamicDivider || staticDivider;
+  if (target) {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  console.log("focus on content called");
 }
 
 /**

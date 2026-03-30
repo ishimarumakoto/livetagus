@@ -1,10 +1,7 @@
 /**
  * app-alerts.js
  * Sistema de alertas: carregamento, validação, geração de HTML e gestão.
- * Depende de: app-config.js
- *
- * NOTA CSP: Os botões gerados por generateHTML usam data-action em vez de
- * onclick inline. O despacho das ações é feito pela delegação em app-init.js.
+ * Depende de: app-config.j
  */
 
 const AlertsManager = {
@@ -74,7 +71,7 @@ const AlertsManager = {
     const dismissed = sessionStorage.getItem("pwa_dismissed");
 
     if (!isStandalone && !dismissed) {
-      // return true; // Desativação para maior partilha momentânea do jogo de sudoku
+      // return none; // Desativação para maior partilha momentânea do jogo de sudoku
       return {
         id: "pwa-install",
         tipo: "informacao",
@@ -88,11 +85,7 @@ const AlertsManager = {
     return null;
   },
 
-  /**
-   * Gera o HTML do slider de alertas.
-   * IMPORTANTE: Usa data-action em vez de onclick para conformidade com CSP.
-   * O despacho das ações é feito pela delegação de eventos em app-init.js.
-   */
+  // Gera o HTML do slider de alertas.
   generateHTML: (alerts) => {
     if (!alerts || alerts.length === 0) return "";
 
@@ -117,7 +110,6 @@ const AlertsManager = {
           ? "alert-triangle"
           : "info";
 
-      // Botão de ação — usa data-action em vez de onclick
       let actionHtml = "";
       if (alert.isPWA) {
         actionHtml = `<button data-action="install-pwa" class="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wider text-white bg-blue-600 px-3 py-1.5 rounded transition-colors shadow-sm active:scale-95">Instalar</button>`;

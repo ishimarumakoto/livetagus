@@ -2,14 +2,17 @@
  * app-trains.js
  * Lógica de fetch à API Fertagus e processamento dos dados dos comboios.
  * Depende de: app-config.js
+ *
+ * CONTRATO DE RETORNO de fetchFertagusNewAPI():
+ *   null  → erro de rede / offline  → a UI preserva cartões offline existentes
+ *   []    → sem comboios (filtro normal) ou apiIsDown (flag separada)
+ *   [...]  → lista de comboios processada com sucesso
  */
 
-/**
- * Obtém e processa os comboios a partir da API Fertagus + base de dados local.
- */
 async function fetchFertagusNewAPI() {
   const currentDB = activeTab === "lisboa" ? DB_LISBOA : DB_MARGEM;
   if (!currentDB) return [];
+
   try {
     const res = await fetch(API_FERTAGUS_NEW + "?t=" + Date.now(), {
       method: "GET",
@@ -20,20 +23,23 @@ async function fetchFertagusNewAPI() {
       cache: "no-store",
     });
 
-    // NOVO: Deteta o disjuntor do teu backend (Código 503)
+    // Disjuntor do backend (503)
     if (res.status === 503) {
       window.apiIsDown = true;
-      return []; // Devolve lista vazia para forçar o ecrã de erro
+      return [];
     }
 
-    if (!res.ok) throw new Error("API Middleware Error");
+    if (!res.ok) throw new Error("API Middleware Error " + res.status);
+
     const data = await res.json();
 
-    // Garantia dupla caso o erro venha em JSON (Status 200 com erro)
+    // Erro em JSON (200 com corpo de erro)
     if (data.error === "IP_DOWN") {
       window.apiIsDown = true;
       return [];
     }
+
+    window.apiIsDown = false;
 
     const futureTrains = data.futureTrains || {};
     const apiTrains = Object.values(data).filter((v) => v && v["id-comboio"]);
@@ -111,9 +117,6 @@ async function fetchFertagusNewAPI() {
             dotStatus = "red";
             pulse = true;
           } else if (isPerturbacao) {
-            // Stage 1 do sistema ghost trains: comboio ao vivo mas sem
-            // atualização há mais de 5 minutos. Mostra aviso laranja e
-            // mantém o último tempo conhecido sem tentar calcular atraso.
             status = "Possível Perturbação";
             dotStatus = "orange";
             pulse = true;
@@ -271,6 +274,7 @@ async function fetchFertagusNewAPI() {
           rawTime: scheduledDate,
           effectiveDate: effectiveDate,
           fullSchedule: apiTrain ? apiTrain.NodesPassagemComboio : null,
+          isOffline: false,
         };
       })
       .filter((t) => t !== null)
@@ -278,12 +282,12 @@ async function fetchFertagusNewAPI() {
 
     return processed;
   } catch (e) {
-    console.error("Erro Fertagus API:", e);
-    return [];
+    console.warn("[Fertagus API] Erro de rede:", e.message);
+    // null → sinaliza erro de rede; a UI preserva os cartões offline actuais
+    return null;
   }
 }
 
 async function getTrains() {
-  const apiData = await fetchFertagusNewAPI();
-  return apiData;
+  return await fetchFertagusNewAPI();
 }

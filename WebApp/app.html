@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt" class="scroll-smooth">
+<html lang="pt-PT" class="scroll-smooth">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -52,6 +52,7 @@
       href="./imagens/favicon-96x96.png"
       type="image/x-icon"
     />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>App LiveTagus | Fertagus em Tempo Real</title>
     <link rel="stylesheet" href="./output.css" />
     <script src="./offline.js"></script>
@@ -165,7 +166,9 @@
       role="main"
     >
       <!-- Compact Header Area -->
-      <div class="sticky top-1 px-6 pt-2 pb-3 z-30 flex flex-col flex-none">
+      <div
+        class="pt-safe-ios sticky top-1 px-6 pt-2 pb-3 z-30 flex flex-col flex-none"
+      >
         <div class="flex items-center justify-between w-full gap-2 relative">
           <!-- Origin Select -->
           <div class="flex-1 min-w-0 relative group">
@@ -219,7 +222,7 @@
         <!-- Compact Next Train Countdown -->
         <div
           id="next-train-header"
-          class="hidden opacity-0 transition-opacity duration-500 mt-3"
+          class="opacity-0 transition-opacity duration-500 mt-3"
         >
           <div class="flex items-center gap-2 text-xs">
             <div
@@ -258,7 +261,7 @@
       <!-- Train List Area -->
       <div
         id="train-container"
-        class="flex-grow overflow-y-auto px-6 pt-2 scrollbar-hide mask-gradient"
+        class="pb-safe-ios flex-grow overflow-y-auto px-6 pt-2 scrollbar-hide mask-gradient"
       >
         <div id="train-list" class="space-y-3 pb-12"></div>
         <button
@@ -285,7 +288,7 @@
         </div>
 
         <div
-          class="bg-white dark:bg-[#1c1c1e] rounded-3xl p-5 mb-5 shadow-sm border border-gray-100 dark:border-gray-800 flex items-center justify-between gap-4 transition-all duration-300"
+          class="bg-white/90 dark:bg-zinc-800/40 backdrop-blur-sm rounded-3xl p-5 mb-5 shadow-sm border border-gray-100 dark:border-gray-800 flex items-center justify-between gap-4 transition-all duration-300"
         >
           <div class="flex items-center gap-4">
             <div

@@ -179,6 +179,15 @@
 @layer utilities {
   .dot-ping { animation: pulse-dot 2s infinite; }
   .station-name { overflow-wrap: break-word; word-break: break-word; hyphens: auto; }
+
+  /* margens para iphone em webapp */
+  .is-ios .pb-safe-ios {
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  }
+  
+  .is-ios .pt-safe-ios {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
 }
 
 @keyframes pulse-dot {
