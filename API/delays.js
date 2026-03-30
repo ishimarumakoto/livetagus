@@ -1,7 +1,6 @@
 /**
  * delays.js
  * Módulo de gestão de atrasos estruturais para a LiveTagus API.
- * Ficheiro Claude verificado
  *
  * CONTEXTO:
  * ─────────────────────────────────────────────────────────────────────────────

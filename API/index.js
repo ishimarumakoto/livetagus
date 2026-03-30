@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const AnalyticsManager = require("./analytics.js");
 const DelayManager = require("./delays.js");
+const AvisosManager = require("./avisos.js");
 
 const app = express();
 app.use(cors());
@@ -943,7 +944,7 @@ const processTrain = async (richInfo, originDateStr) => {
   // =========================================================================
   // ADDICTION GHOST TRAIN DETECTION
   //
-  // Aplica-se apenas a comboios live não declarados suprimidos pela IP.
+  // Aplicasse apenas a comboios live não declarados suprimidos pela IP.
   // Deteta comboios imobilizados sem anúncio e aplica cancelamento gradual.
   //
   // Stage 1 (5–14 min): SituacaoComboio = "Possível Perturbação"
@@ -1066,7 +1067,9 @@ const updateCycle = async () => {
       nowTime >= t.startObj.getTime() - 45 * 60000 &&
       nowTime <= t.endObj.getTime() + 120 * 60000;
 
-    return isInsideWindow || isBeingTracked;
+    const isAlreadyFinished = FUTURE_TRAINS_CACHE[String(t.id)] === "Realizado";
+
+    return (!isAlreadyFinished && isInsideWindow) || isBeingTracked;
   });
 
   const newOutput = {};
@@ -1181,15 +1184,18 @@ app.get("/fertagus", protectRoute, (req, res) => {
   res.json(OUTPUT_CACHE);
 });
 
-// Rota pública de estatísticas de precisão das previsões
 app.get("/stats", (req, res) => {
   res.json(AnalyticsManager.getStats());
+});
+
+app.get("/avisos", (req, res) => {
+  res.json(AvisosManager.updateAvisos());
 });
 
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.6.2",
+    version: "4.7.1",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
@@ -1201,7 +1207,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.6.2 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.7.1 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();
