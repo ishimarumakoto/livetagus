@@ -628,6 +628,7 @@ const processTrain = async (richInfo, originDateStr) => {
   let nodes = details?.NodesPassagemComboio || [];
   let duracao = details?.DuracaoViagem || "--:--";
   let operador = details?.Operador || "FERTAGUS";
+  let carruagens = isWeekendOrHoliday ? "4" : details?.carruagens
   let origemIp =
     details?.Origem ||
     (direction === "lisboa"
@@ -753,6 +754,7 @@ const processTrain = async (richInfo, originDateStr) => {
     Operador: operador,
     Origem: origemIp,
     TipoServico: "URB|SUBUR",
+    Carruagens: carruagens,
     Live: isLive,
     Ocupacao: richInfo.ocupacao,
     NodesPassagemComboio: [],
