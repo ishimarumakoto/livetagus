@@ -34,7 +34,7 @@ const protectRoute = (req, res, next) => {
 // Mapeamento de nomes
 const STATION_MAP_JSON_TO_IP = {
   setubal: "SETÚBAL",
-  palmela: "PALMELA-A",
+  palmela: "PALMELA",
   venda_do_alcaide: "VENDA DO ALCAIDE",
   pinhal_novo: "PINHAL NOVO",
   penalva: "PENALVA",
@@ -43,7 +43,7 @@ const STATION_MAP_JSON_TO_IP = {
   foros_de_amora: "FOROS DE AMORA",
   corroios: "CORROIOS",
   pragal: "PRAGAL",
-  campolide: "CAMPOLIDE-A",
+  campolide: "CAMPOLIDE",
   sete_rios: "SETE RIOS",
   entrecampos: "ENTRECAMPOS",
   roma_areeiro: "ROMA-AREEIRO",
@@ -60,7 +60,7 @@ const STATION_MAP_IP_TO_JSON = Object.entries(STATION_MAP_JSON_TO_IP).reduce(
 // IDs Fixos para Fallback Offline
 const STATION_IDS_FIXED = {
   SETÚBAL: 9468122,
-  "PALMELA-A": 9468098,
+  PALMELA: 9468098,
   "VENDA DO ALCAIDE": 9468049,
   "PINHAL NOVO": 9468007,
   PENALVA: 9417095,
@@ -69,7 +69,7 @@ const STATION_IDS_FIXED = {
   "FOROS DE AMORA": 9417152,
   CORROIOS: 9417137,
   PRAGAL: 9417087,
-  "CAMPOLIDE-A": 9467033,
+  CAMPOLIDE: 9467033,
   "SETE RIOS": 9466076,
   ENTRECAMPOS: 9466050,
   "ROMA-AREEIRO": 9466035,
@@ -458,12 +458,6 @@ const checkOfflineTrains = async () => {
           } else {
             results[String(t.id)] = situacao;
           }
-        } else if (
-          // Adicionado para supressões causadas por obras
-          (!details || !details.SituacaoComboio) &&
-          (t.id === "14306" || t.id === "14001")
-        ) {
-          results[String(t.id)] = "SUPRIMIDO";
         }
       }),
     );
@@ -631,15 +625,6 @@ const processTrain = async (richInfo, originDateStr) => {
 
   let isLive = false;
   let situacao = details?.SituacaoComboio || "Sem dados IP";
-
-  // Adicionado para mostrar comboios suprimidos devido às obras.
-  if (
-    (!details || !details.SituacaoComboio) &&
-    (trainId === "14306" || trainId === "14001")
-  ) {
-    situacao = "SUPRIMIDO";
-  }
-
   let nodes = details?.NodesPassagemComboio || [];
   let duracao = details?.DuracaoViagem || "--:--";
   let operador = details?.Operador || "FERTAGUS";
@@ -1189,13 +1174,13 @@ app.get("/stats", (req, res) => {
 });
 
 app.get("/avisos", (req, res) => {
-  res.json(AvisosManager.updateAvisos());
+  res.json(AvisosManager.getAvisos());
 });
 
 app.get("/", (req, res) =>
   res.json({
     status: "online",
-    version: "4.7.1",
+    version: "4.7.2",
     aviso:
       "Pedimos que não uses o nosso endpoint diretamente! Verifica toda as informações e código no github.",
     operational: getOperationalInfo(),
@@ -1207,7 +1192,7 @@ app.get("/", (req, res) =>
 );
 
 app.listen(PORT, () => {
-  console.log(`LiveTagus API v4.7.1 ativa na porta ${PORT}`);
+  console.log(`LiveTagus API v4.7.2 ativa na porta ${PORT}`);
   console.log(`Endpoint /fertagus protegido com API_KEY.`);
   checkOfflineTrains();
   updateCycle();
