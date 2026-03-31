@@ -622,8 +622,6 @@ const processTrain = async (richInfo, originDateStr) => {
   }
 
   const details = await fetchDetails(trainId, originDateStr);
-  const { isWeekendOrHoliday } = getOperationalInfo(nowObj);
-  const carruagens = isWeekendOrHoliday ? "4" : details?.carruagens
   let isLive = false;
   let situacao = details?.SituacaoComboio || "Sem dados IP";
   let nodes = details?.NodesPassagemComboio || [];
@@ -736,6 +734,8 @@ const processTrain = async (richInfo, originDateStr) => {
 
   const displayDate = originDateStr.split("-").reverse().join("/");
   const refTrip = departureTrip || richInfo;
+  const { isWeekendOrHoliday } = getOperationalInfo(nowObj);
+  const carruagens = isWeekendOrHoliday ? "4" : richInfo?.carruagens
   let headerOrigem =
     direction === "lisboa"
       ? refTrip.setubal || refTrip.coina
