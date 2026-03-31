@@ -623,12 +623,12 @@ const processTrain = async (richInfo, originDateStr) => {
 
   const details = await fetchDetails(trainId, originDateStr);
   const { isWeekendOrHoliday } = getOperationalInfo(nowObj);
+  const carruagens = isWeekendOrHoliday ? "4" : details?.carruagens
   let isLive = false;
   let situacao = details?.SituacaoComboio || "Sem dados IP";
   let nodes = details?.NodesPassagemComboio || [];
   let duracao = details?.DuracaoViagem || "--:--";
-  let operador = details?.Operador || "FERTAGUS";
-  let carruagens = isWeekendOrHoliday ? "4" : details?.carruagens
+  let operador = details?.Operador || "FERTAGUS";  
   let origemIp =
     details?.Origem ||
     (direction === "lisboa"
